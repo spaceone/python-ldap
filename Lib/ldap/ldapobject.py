@@ -820,8 +820,7 @@ class SimpleLDAPObject:
 class ReconnectLDAPObject(SimpleLDAPObject):
   """
   :py:class:`SimpleLDAPObject` subclass whose synchronous request methods
-  automatically reconnect and re-try in case of server failure
-  (:exc:`ldap.SERVER_DOWN`).
+  automatically reconnect and re-try in case of server failure.
 
   The first arguments are same as for the :py:func:`~ldap.initialize()`
   function.
@@ -833,6 +832,10 @@ class ReconnectLDAPObject(SimpleLDAPObject):
   * retry_delay: specifies the time in seconds between reconnect attempts.
 
   This class also implements the pickle protocol.
+
+  .. versionadded:: 4.0
+    The exceptions :py:exc:`ldap.UNAVAILABLE`, :py:exc:`ldap.CONNECT_ERROR`,
+    :py:exc:`ldap.TIMEOUT` and :py:exc:`ldap.TIMELIMIT_EXCEEDED` now also trigger a reconnect.
   """
 
   __transient_attrs__ = {
@@ -842,11 +845,12 @@ class ReconnectLDAPObject(SimpleLDAPObject):
     '_reconnect_lock',
     '_last_bind',
   }
+  _reconnect_exceptions = (ldap.SERVER_DOWN, ldap.UNAVAILABLE, ldap.CONNECT_ERROR, ldap.TIMEOUT, ldap.TIMELIMIT_EXCEEDED)
 
   def __init__(
     self,uri,
     trace_level=0,trace_file=None,trace_stack_limit=5,bytes_mode=None,
-    bytes_strictness=None, retry_max=1, retry_delay=60.0, fileno=None
+    bytes_strictness=None, retry_max=1, retry_delay=60.0, fileno=None,
   ):
     """
     Parameters like SimpleLDAPObject.__init__() with these
@@ -939,7 +943,7 @@ class ReconnectLDAPObject(SimpleLDAPObject):
           except ldap.LDAPError:
             SimpleLDAPObject.unbind_s(self)
             raise
-        except (ldap.SERVER_DOWN,ldap.TIMEOUT):
+        except (ldap.SERVER_DOWN, ldap.TIMEOUT):
           if __debug__ and self._trace_level>=1:
             self._trace_file.write('*** {} reconnect to {} failed\n'.format(
               counter_text,uri
@@ -966,7 +970,7 @@ class ReconnectLDAPObject(SimpleLDAPObject):
       self.reconnect(self._uri,retry_max=self._retry_max,retry_delay=self._retry_delay)
     try:
       return func(self,*args,**kwargs)
-    except ldap.SERVER_DOWN:
+    except self._reconnect_exceptions:
       SimpleLDAPObject.unbind_s(self)
       # Try to reconnect
       self.reconnect(self._uri,retry_max=self._retry_max,retry_delay=self._retry_delay)
