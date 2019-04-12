@@ -821,7 +821,6 @@ class ReconnectLDAPObject(SimpleLDAPObject):
   """
   :py:class:`SimpleLDAPObject` subclass whose synchronous request methods
   automatically reconnect and re-try in case of server failure
-  (:param:`reconnect_exceptions` defaulting to :exc:`ldap.SERVER_DOWN`).
 
   The first arguments are same as for the :py:func:`~ldap.initialize()`
   function.
@@ -831,6 +830,9 @@ class ReconnectLDAPObject(SimpleLDAPObject):
     re-raising the :py:exc:`ldap.SERVER_DOWN` exception.
 
   * retry_delay: specifies the time in seconds between reconnect attempts.
+
+  * reconnect_exceptions: Specifies the exceptions which will cause a reconnect
+    (defaulting to :py:exc:`ldap.SERVER_DOWN` and  :py:exc:`ldap.UNAVAILABLE`).
 
   This class also implements the pickle protocol.
   """
@@ -847,7 +849,7 @@ class ReconnectLDAPObject(SimpleLDAPObject):
     self,uri,
     trace_level=0,trace_file=None,trace_stack_limit=5,bytes_mode=None,
     bytes_strictness=None, retry_max=1, retry_delay=60.0, fileno=None,
-    reconnect_exceptions=(ldap.SERVER_DOWN,),
+    reconnect_exceptions=(ldap.SERVER_DOWN, ldap.UNAVAILABLE),
   ):
     """
     Parameters like SimpleLDAPObject.__init__() with these
