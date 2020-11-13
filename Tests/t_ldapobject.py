@@ -7,8 +7,11 @@ import errno
 import linecache
 import os
 import socket
+import threading
+import time
 import unittest
 import pickle
+
 
 # Switch off processing .ldaprc or ldap.conf before importing _ldap
 os.environ['LDAPNOINIT'] = '1'
@@ -547,6 +550,7 @@ class Test01_ReconnectLDAPObject(Test00_SimpleLDAPObject):
                     {}
                 ),
                 '_options': [(17, 3)],
+                '_reconnect_exceptions': (ldap.SERVER_DOWN, ldap.UNAVAILABLE),
                 '_reconnects_done': 0,
                 '_retry_delay': 60.0,
                 '_retry_max': 1,
@@ -584,6 +588,63 @@ class Test01_ReconnectLDAPObject(Test00_SimpleLDAPObject):
         finally:
             self.server._start_slapd()
         self.assertEqual(l1.whoami_s(), 'dn:'+bind_dn)
+
+    def test_106_reconnect_restore(self):
+        lo = self.ldap_object_class(self.server.ldap_uri, retry_max=2, retry_delay=1)
+        bind_dn = 'cn=user1,' + self.server.suffix
+        lo.simple_bind_s(bind_dn, 'user1_pw')
+
+        dn = lo.whoami_s()[3:]
+
+        self.server._proc.terminate()
+        self.server.wait()
+
+        # do a search, wait for the timeout, handle SERVER_DOWN exception
+        try:
+            print(lo.search_s(dn, ldap.SCOPE_BASE, '(objectClass=*)'))
+        except ldap.SERVER_DOWN:
+            pass  # some handling here
+        else:
+            self.assertEqual(True, False)
+
+        self.server._start_slapd()
+
+        # try to use the connection again
+        print(lo.search_s(dn, ldap.SCOPE_BASE, '(objectClass=*)'))
+        # this now raises ldap.INSUFFICIENT_ACCESS, as it is now a unbound connection and does everything anonymously.
+
+    def test_107_reconnect_restore(self):
+        def foo():
+            lo = self.ldap_object_class(self.server.ldap_uri)
+            bind_dn = 'cn=user1,' + self.server.suffix
+            lo.simple_bind_s(bind_dn, 'user1_pw')
+            lo._retry_max = 10E4
+            lo._retry_delay = .001
+            x = 0
+            lo.search_ext_s(self.server.suffix, ldap.SCOPE_SUBTREE, "cn=user1", attrlist=["cn"])
+            s = time.time()
+            print("go")
+            while (time.time() - s) < run_time:
+                x += 1
+                lo.search_ext_s(self.server.suffix, ldap.SCOPE_SUBTREE, filterstr="cn=user1", attrlist=["cn"])
+            print("Searches per sec: {}".format(x / run_time))
+
+        thread_count = 100
+        run_time = 10.0
+        my_thread = [None] * thread_count
+        for i in range(0, thread_count):
+            my_thread[i] = threading.Thread(target=foo)
+        for t in my_thread:
+            t.start()
+        print("warmup")
+        time.sleep(3)
+        print("restart slapd")
+        self.server.restart()
+        print("restarted")
+        for t in my_thread:
+            t.join()
+
+        print("done")
 
 
 @requires_init_fd()
