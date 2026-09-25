@@ -9,15 +9,17 @@ from __future__ import annotations
 __version__ = '3.4.7'
 
 __all__ = [
-  # functions
+  # constants
+  'CHANGE_TYPES',
+  'MOD_OP_INTEGER',
+  # classes
   'CreateLDIF',
   'LDIFCopy',
   'LDIFParser',
   'LDIFRecordList',
-  # classes
   'LDIFWriter',
   'ParseLDIF',
-  # constants
+  # functions
   'ldif_pattern',
 ]
 
@@ -142,7 +144,7 @@ class LDIFWriter:
     of special chars or because attr_type is in self._base64_attrs
     """
     return attr_type.lower() in self._base64_attrs or \
-           not safe_string_re.search(attr_value) is None
+           safe_string_re.search(attr_value) is not None
 
   def _unparseAttrTypeandValue(self, attr_type: str, attr_value: bytes) -> None:
     """
@@ -492,7 +494,7 @@ class LDIFParser:
           continue
 
         # Add the attribute to the entry if not ignored attribute
-        if not k.lower() in self._ignored_attr_types:
+        if k.lower() not in self._ignored_attr_types:
           try:
             entry[k].append(v)
           except KeyError:
@@ -670,7 +672,7 @@ class LDIFParser:
       elif changetype == 'add':
         entry: LDAPEntryDict = {}
         while k!=None:
-          if not k.lower() in self._ignored_attr_types and v is not None:
+          if k.lower() not in self._ignored_attr_types and v is not None:
             entry.setdefault(k, []).append(v)
           try:
             k,v = next_key_and_value()
