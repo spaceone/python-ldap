@@ -9,6 +9,10 @@ Breaking:
 
 API changes:
 
+* ``ldif.LDIFWriter.unparse()`` now raises ``TypeError`` instead of
+  ``ValueError`` when passed a record that is neither a dictionary nor a list,
+  matching the convention for an argument of the wrong type.
+
 * The deprecated :data:`ldap.OPT_X_TLS` option has been removed, as announced in the
   3.4.3 release notes. The ``OPT_X_TLS_*`` option constants (such as
   :data:`ldap.OPT_X_TLS_NEWCTX` and :data:`ldap.OPT_X_TLS_REQUIRE_CERT`) are unaffected.
