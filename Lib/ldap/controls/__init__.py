@@ -51,11 +51,13 @@ class RequestControl:
         control value of the LDAPv3 extended request control
         (here it is the BER-encoded ASN.1 control value)
     """
+    controlType: str | None = None
 
     def __init__(
         self, controlType: str | None = None, criticality: bool = False, encodedControlValue: bytes | None = None
     ) -> None:
-        self.controlType = controlType
+        if controlType is not None:
+            self.controlType = controlType
         self.criticality = criticality
         self.encodedControlValue = encodedControlValue
 
