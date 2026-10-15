@@ -65,7 +65,9 @@ class PersistentSearchControl(RequestControl):
         changesOnly: bool = False,
         returnECs: bool = True,
     ) -> None:
-        self.criticality, self.changesOnly, self.returnECs = criticality, changesOnly, returnECs
+        super().__init__(self.controlType, criticality)
+        self.changesOnly = changesOnly
+        self.returnECs = returnECs
         if isinstance(changeTypes, int):
             changeTypes = [changeTypes]
         self.changeTypes = changeTypes or CHANGE_TYPES_INT.keys()
@@ -125,7 +127,7 @@ class EntryChangeNotificationControl(ResponseControl):
         self.changeType = int(ecncValue.getComponentByName('changeType'))
         previousDN = ecncValue.getComponentByName('previousDN')
         if previousDN.hasValue():
-            self.previousDN: str | None = str(previousDN)
+            self.previousDN: str | None = bytes(previousDN).decode('UTF-8')
         else:
             self.previousDN = None
         changeNumber = ecncValue.getComponentByName('changeNumber')
