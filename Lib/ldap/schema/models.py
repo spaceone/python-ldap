@@ -22,6 +22,21 @@ from ldap.schema.tokenizer import LDAPTokenDict, parse_tokens, split_tokens
 
 EntryBase: TypeAlias = MutableMapping[str, list[bytes]]
 
+__all__ = [
+    'NOT_HUMAN_READABLE_LDAP_SYNTAXES',
+    'OBJECTCLASS_KIND_STR',
+    'AttributeType',
+    'DITContentRule',
+    'DITStructureRule',
+    'Entry',
+    'LDAPSyntax',
+    'MatchingRule',
+    'MatchingRuleUse',
+    'NameForm',
+    'ObjectClass',
+    'SchemaElement',
+    'SchemaElementOIDSet',
+]
 
 NOT_HUMAN_READABLE_LDAP_SYNTAXES = {
     '1.3.6.1.4.1.1466.115.121.1.4',  # Audio
