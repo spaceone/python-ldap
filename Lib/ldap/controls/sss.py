@@ -8,25 +8,24 @@ See https://www.python-ldap.org/ for project details.
 from __future__ import annotations
 
 
+from pyasn1.codec.ber import decoder, encoder
+from pyasn1.type import constraint, namedtype, namedval, tag, univ
+
+from ldap.controls import KNOWN_RESPONSE_CONTROLS, RequestControl, ResponseControl
+
 __all__ = [
     'SSSRequestControl',
     'SSSResponseControl',
 ]
 
 
-from pyasn1.codec.ber import decoder, encoder
-from pyasn1.type import constraint, namedtype, namedval, tag, univ
-
-from ldap.controls import KNOWN_RESPONSE_CONTROLS, RequestControl, ResponseControl
-
-
-#    SortKeyList ::= SEQUENCE OF SEQUENCE {
-#                     attributeType   AttributeDescription,
-#                     orderingRule    [0] MatchingRuleId OPTIONAL,
-#                     reverseOrder    [1] BOOLEAN DEFAULT FALSE }
-
-
 class SortKeyType(univ.Sequence):
+    """
+    SEQUENCE {
+       attributeType   AttributeDescription,
+       orderingRule    [0] MatchingRuleId OPTIONAL,
+       reverseOrder    [1] BOOLEAN DEFAULT FALSE }
+    """
     componentType = namedtype.NamedTypes(
         namedtype.NamedType('attributeType', univ.OctetString()),
         namedtype.OptionalNamedType(
@@ -45,6 +44,12 @@ class SortKeyType(univ.Sequence):
 
 
 class SortKeyListType(univ.SequenceOf):
+    """
+    SortKeyList ::= SEQUENCE OF SEQUENCE {
+                     attributeType   AttributeDescription,
+                     orderingRule    [0] MatchingRuleId OPTIONAL,
+                     reverseOrder    [1] BOOLEAN DEFAULT FALSE }
+    """
     componentType = SortKeyType()  # type: ignore[assignment]
 
 
@@ -79,12 +84,12 @@ class SSSRequestControl(RequestControl):
             if reverse_order:
                 rule = rule[1:]
             if ':' in rule:
-                attribute_type, ordering_rule = rule.split(':')
+                attribute_type, ordering_rule = rule.split(':', 1)
             else:
                 attribute_type, ordering_rule = rule, None
-            q.setComponentByName('attributeType', attribute_type)
+            q.setComponentByName('attributeType', attribute_type.encode('UTF-8'))
             if ordering_rule:
-                q.setComponentByName('orderingRule', ordering_rule)
+                q.setComponentByName('orderingRule', ordering_rule.encode('UTF-8'))
             if reverse_order:
                 q.setComponentByName('reverseOrder', 1)
             p.setComponentByPosition(i, q)
