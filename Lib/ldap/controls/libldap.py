@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ldap
 from ldap import _ldap
-from ldap.controls import KNOWN_RESPONSE_CONTROLS, LDAPControl, RequestControl
+from ldap.controls import LDAPControl, RequestControl
 from ldap.pkginfo import __version__
 
 
@@ -33,7 +33,7 @@ class AssertionControl(RequestControl):
         super().__init__(self.controlType, criticality)
         self.filterstr = filterstr
 
-    def encodeControlValue(self) -> bytes:
+    def encode(self) -> bytes:
         return _ldap.encode_assertion_control(self.filterstr)  # type: ignore
 
 
@@ -56,7 +56,7 @@ class MatchedValuesControl(RequestControl):
         super().__init__(self.controlType, criticality)
         self.filterstr = filterstr
 
-    def encodeControlValue(self) -> bytes:
+    def encode(self) -> bytes:
         return _ldap.encode_valuesreturnfilter_control(self.filterstr)  # type: ignore
 
 
@@ -76,11 +76,8 @@ class SimplePagedResultsControl(LDAPControl):
         super().__init__(self.controlType, criticality)
         self.size, self.cookie = size, cookie
 
-    def encodeControlValue(self) -> bytes:
+    def encode(self) -> bytes:
         return _ldap.encode_page_control(self.size, self.cookie)  # type: ignore
 
-    def decodeControlValue(self, encodedControlValue: bytes) -> None:
-        self.size, self.cookie = _ldap.decode_page_control(encodedControlValue)
-
-
-KNOWN_RESPONSE_CONTROLS[ldap.CONTROL_PAGEDRESULTS] = SimplePagedResultsControl
+    def decode(self, value: bytes) -> None:
+        self.size, self.cookie = _ldap.decode_page_control(value)

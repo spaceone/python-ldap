@@ -11,7 +11,7 @@ from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type import namedtype, univ
 from pyasn1_modules.rfc2251 import LDAPString
 
-from ldap.controls import KNOWN_RESPONSE_CONTROLS, RequestControl, ResponseControl
+from ldap.controls import RequestControl, ResponseControl
 
 
 __all__ = ['SimplePagedResultsControl']
@@ -44,16 +44,13 @@ class SimplePagedResultsControl(RequestControl, ResponseControl):
         else:
             self.cookie = cookie
 
-    def encodeControlValue(self) -> bytes:
+    def encode(self) -> bytes:
         pc = PagedResultsControlValue()
         pc.setComponentByName('size', univ.Integer(self.size))
         pc.setComponentByName('cookie', LDAPString(self.cookie))
         return encoder.encode(pc)  # type: ignore
 
-    def decodeControlValue(self, encodedControlValue: bytes) -> None:
-        decodedValue, _ = decoder.decode(encodedControlValue, asn1Spec=PagedResultsControlValue())
+    def decode(self, value: bytes) -> None:
+        decodedValue, _ = decoder.decode(value, asn1Spec=PagedResultsControlValue())
         self.size = int(decodedValue.getComponentByName('size'))
         self.cookie = bytes(decodedValue.getComponentByName('cookie'))
-
-
-KNOWN_RESPONSE_CONTROLS[SimplePagedResultsControl.controlType] = SimplePagedResultsControl

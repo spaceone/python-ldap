@@ -10,11 +10,13 @@ Each class provides support for a certain control.
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Sequence
+from importlib import import_module
+
 from pyasn1.error import PyAsn1Error
 
 import ldap
-from ldap import _ldap
-from ldap.pkginfo import __version__
 
 
 __all__ = [
@@ -35,9 +37,6 @@ __all__ = [
     'ValueLessRequestControl',
 ]
 
-# response control OID to class registry
-KNOWN_RESPONSE_CONTROLS: dict[str, type[ResponseControl]] = {}
-
 
 class RequestControl:
     """
@@ -51,6 +50,7 @@ class RequestControl:
         control value of the LDAPv3 extended request control
         (here it is the BER-encoded ASN.1 control value)
     """
+
     controlType: str | None = None
 
     def __init__(
@@ -61,11 +61,14 @@ class RequestControl:
         self.criticality = criticality
         self.encodedControlValue = encodedControlValue
 
-    def encodeControlValue(self) -> bytes | None:
+    def encode(self) -> bytes | None:
         """
         sets class attribute encodedControlValue to the BER-encoded ASN.1
         control value composed by class attributes set before
         """
+        return self.encodeControlValue()
+
+    def encodeControlValue(self) -> bytes | None:
         return self.encodedControlValue
 
 
@@ -83,11 +86,14 @@ class ResponseControl:
         self.controlType = controlType
         self.criticality = criticality
 
-    def decodeControlValue(self, encodedControlValue: bytes) -> None:
+    def decode(self, value: bytes) -> None:
         """
         decodes the BER-encoded ASN.1 control value and sets the appropriate
         class attributes
         """
+        return self.decodeControlValue(value)
+
+    def decodeControlValue(self, encodedControlValue: bytes) -> None:
         # The type hint can be removed once class LDAPControl is removed
         self.encodedControlValue: bytes | None = encodedControlValue
 
@@ -103,66 +109,112 @@ class LDAPControl(RequestControl, ResponseControl):
         controlType: str | None = None,
         criticality: bool = False,
         controlValue: str | None = None,
-        encodedControlValue: bytes | None = None,
+        value: bytes | None = None,
     ) -> None:
         self.controlType = controlType
         self.criticality = criticality
         self.controlValue = controlValue
-        self.encodedControlValue = encodedControlValue
+        self.value = value
 
 
-def RequestControlTuples(
-    ldapControls: list[RequestControl] | None,
-) -> list[tuple[str | None, bool, bytes | None]] | None:
+def encode_request_ctrls(ctrls: Sequence[RequestControl] | None) -> tuple[str | None, bool, bytes | None] | None:
     """
     Return list of readily encoded 3-tuples which can be directly
-    passed to C module _ldap
+    passed to C module ldap._ldap
 
-    ldapControls
+    ctrls
         sequence-type of RequestControl objects
     """
-    if ldapControls is None:
+    if ctrls is None:
         return None
-    else:
-        result = [(c.controlType, c.criticality, c.encodeControlValue()) for c in ldapControls]
-        return result
+    return [(c.controlType, c.criticality, c.encode()) for c in ctrls]
 
 
-def DecodeControlTuples(
-    ldapControlTuples: list[tuple[str, bool, bytes]] | None,
-    knownLDAPControls: dict[str, type[ResponseControl]] | None = None,
-) -> list[ResponseControl]:
+RequestControlTuples = encode_request_ctrls  # backwards compatibility
+
+
+def decode_response_ctrls(
+    ctrls: Sequence[tuple[str, bool, bytes]],
+    ctrl_reg: dict[str, ResponseControl] | None = None,
+):
     """
     Returns list of readily decoded ResponseControl objects
 
-    ldapControlTuples
-        Sequence-type of 3-tuples returned by _ldap.result4() containing
+    ctrls
+        Sequence-type of 3-tuples returned by ldap._ldap.result4() containing
         the encoded ASN.1 control values of response controls.
-    knownLDAPControls
+    ctrl_reg
         Dictionary mapping extended control's OID to ResponseControl class
         of response controls known by the application. If None
         ldap.controls.KNOWN_RESPONSE_CONTROLS is used here.
     """
-    knownLDAPControls = knownLDAPControls or KNOWN_RESPONSE_CONTROLS
+    if ctrl_reg is None:
+        ctrl_reg = KNOWN_RESPONSE_CONTROLS
     result = []
-    for controlType, criticality, encodedControlValue in ldapControlTuples or []:
+    for ctrl_type, ctrl_criticality, ctrl_val in ctrls or []:
         try:
-            control = knownLDAPControls[controlType]()
+            control_class = ctrl_reg.get(ctrl_type)
         except KeyError:
-            if criticality:
-                raise ldap.UNAVAILABLE_CRITICAL_EXTENSION(
-                    f'Received unexpected critical response control with controlType {controlType!r}'
-                )
+            if ctrl_criticality:
+                raise ldap.UNAVAILABLE_CRITICAL_EXTENSION(f'Unknown critical response control, ctrl_type {ctrl_type!r}')
         else:
-            control.controlType, control.criticality = controlType, criticality
+            control = control_class(criticality=ctrl_criticality)
             try:
-                control.decodeControlValue(encodedControlValue)
+                control.decode(ctrl_val)
             except PyAsn1Error:
-                if criticality:
+                if ctrl_criticality:
                     raise
             else:
                 result.append(control)
     return result
+
+
+DecodeControlTuples = decode_response_ctrls  # backwards compatibility
+
+
+class ControlRegistry:
+    """
+    A simple registry for extended controls and their handler class
+    """
+
+    cmap: dict[str, ResponseControl]
+
+    def __init__(self, *module_names):
+        self.cmap = None
+        self._module_names = module_names
+
+    def _reg(self, *module_names):
+        for module_name in module_names:
+            module = import_module(module_name)
+            for _, cls in inspect.getmembers(module, inspect.isclass):
+                if issubclass(cls, ResponseControl) and hasattr(cls, 'controlType') and cls.controlType is not None:
+                    self.cmap[cls.controlType] = cls
+
+    def get(self, control_type):
+        if self.cmap is None:
+            self.cmap = {}
+            self._reg(*self._module_names)
+        return self.cmap[control_type]
+
+    # TOOD: add backwards compat layer
+
+
+# response control OID to class registry
+KNOWN_RESPONSE_CONTROLS = ControlRegistry(
+    __name__ + '.deref',
+    __name__ + '.libldap',
+    __name__ + '.openldap',
+    __name__ + '.pagedresults',
+    __name__ + '.ppolicy',
+    __name__ + '.psearch',
+    __name__ + '.pwdpolicy',
+    __name__ + '.readentry',
+    __name__ + '.sessiontrack',
+    __name__ + '.simple',
+    __name__ + '.sss',
+    __name__ + '.syncrepl',
+    __name__ + '.vlv',
+)
 
 
 from ldap.controls.libldap import *  # noqa: E402
