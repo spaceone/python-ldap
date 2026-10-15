@@ -30,7 +30,7 @@ class AssertionControl(RequestControl):
     controlType = ldap.CONTROL_ASSERT
 
     def __init__(self, criticality: bool = True, filterstr: str = '(objectClass=*)') -> None:
-        self.criticality = criticality
+        super().__init__(self.controlType, criticality)
         self.filterstr = filterstr
 
     def encodeControlValue(self) -> bytes:
@@ -53,7 +53,7 @@ class MatchedValuesControl(RequestControl):
         criticality: bool = False,
         filterstr: str = '(objectClass=*)',
     ) -> None:
-        self.criticality = criticality
+        super().__init__(self.controlType, criticality)
         self.filterstr = filterstr
 
     def encodeControlValue(self) -> bytes:
@@ -73,7 +73,7 @@ class SimplePagedResultsControl(LDAPControl):
     controlType = ldap.CONTROL_PAGEDRESULTS
 
     def __init__(self, criticality: bool = False, size: int | None = None, cookie: str | bytes | None = None) -> None:
-        self.criticality = criticality
+        super().__init__(self.controlType, criticality)
         self.size, self.cookie = size, cookie
 
     def encodeControlValue(self) -> bytes:
