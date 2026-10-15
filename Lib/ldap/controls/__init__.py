@@ -10,17 +10,11 @@ Each class provides support for a certain control.
 
 from __future__ import annotations
 
+from pyasn1.error import PyAsn1Error
+
+import ldap
 from ldap import _ldap
 from ldap.pkginfo import __version__
-
-
-assert _ldap.__version__ == __version__, ImportError(
-    f'ldap {__version__} and _ldap {_ldap.__version__} version mismatch!'
-)
-
-from pyasn1.error import PyAsn1Error  # noqa: E402
-
-import ldap  # noqa: E402
 
 
 __all__ = [
