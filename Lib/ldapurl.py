@@ -36,6 +36,12 @@ LDAP_SCOPE_ONELEVEL = 1
 LDAP_SCOPE_SUBTREE = 2
 LDAP_SCOPE_SUBORDINATES = 3
 
+LDAPURL_SCHEMES = {
+    'ldap://',
+    'ldaps://',
+    'ldapi://',
+}
+
 SEARCH_SCOPE_STR = {
     None: '',
     LDAP_SCOPE_BASE: 'base',
@@ -57,12 +63,12 @@ SEARCH_SCOPE = {
 
 def isLDAPUrl(s: str) -> bool:
     """Returns True if s is a LDAP URL, else False"""
-    return s.lower().startswith(('ldap://', 'ldaps://', 'ldapi://'))
+    return s.lower().startswith(LDAPURL_SCHEMES)
 
 
-def ldapUrlEscape(s: str) -> str:
-    """Returns URL encoding of string s"""
-    return quote(s).replace(',', '%2C').replace('/', '%2F')
+def ldapUrlEscape(val: str) -> str:
+    """Returns URL encoding of string val"""
+    return quote(val, safe='', encoding='utf-8').replace('/', '%2F')
 
 
 class LDAPUrlExtension:
@@ -111,10 +117,13 @@ class LDAPUrlExtension:
             # No value, just the extype
             self.extype, self.exvalue = extension, None
         else:
-            self.exvalue = unquote(self.exvalue.strip())
+            self.exvalue = unquote(self.exvalue.strip(), encoding='utf-8')
         self.extype = self.extype.strip()
 
     def unparse(self) -> str:
+        """
+        generate string representation of single LDAP URL extension
+        """
         if self.exvalue is None:
             return '{}{}'.format('!' * (self.critical > 0), self.extype)
         else:
@@ -180,7 +189,7 @@ class LDAPUrlExtensions(LDAPUrlExtensionsBase):
         return len(self._data)
 
     def __str__(self) -> str:
-        return ','.join(str(v) for v in self.values())
+        return ','.join(str(val) for val in self.values())
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__module__}.{self.__class__.__name__} instance at {hex(id(self))}: {self._data}>'
@@ -191,14 +200,20 @@ class LDAPUrlExtensions(LDAPUrlExtensionsBase):
         return self._data == other._data
 
     def parse(self, extListStr: str) -> None:
+        """
+        parse string into list of LDAPURLExtension instances
+        """
         for extension_str in extListStr.strip().split(','):
             if extension_str:
-                e = LDAPUrlExtension(extension_str)
-                if e.extype is not None:
-                    self[e.extype] = e
+                ext = LDAPUrlExtension(extension_str)
+                if ext.extype is not None:
+                    self[ext.extype] = ext
 
     def unparse(self) -> str:
-        return ','.join(v.unparse() for v in self.values())
+        """
+        return comma-separated string representation of LDAP URL extensions
+        """
+        return ','.join(val.unparse() for val in self.values())
 
 
 class LDAPUrl:
@@ -228,7 +243,16 @@ class LDAPUrl:
           Maps automagically to X-BINDPW LDAP URL extension
     """
 
-    attr2extype = {'who': 'bindname', 'cred': 'X-BINDPW'}
+    attr2extype = {
+        'who': 'bindname',
+        'cred': 'X-BINDPW',
+        'trace_level': 'trace',
+        'pwd_filename': 'x-pwdfilename',
+        'sasl_mech': 'x-saslmech',
+        'sasl_authzid': 'x-saslauthzid',
+        'sasl_realm': 'x-saslrealm',
+        'start_tls': 'x-starttls',
+    }
     urlscheme: str | None
     hostport: str | None
     dn: str | None
@@ -293,6 +317,8 @@ class LDAPUrl:
             raise ValueError(f'Value {ldap_url!r} for ldap_url does not seem to be a LDAP URL.')
         scheme, rest = ldap_url.split('://', 1)
         self.urlscheme = scheme.lower()
+        if self.urlscheme + '://' not in LDAPURL_SCHEMES:
+            raise ValueError(f'LDAP URL contains unsupported URL scheme {self.urlscheme}.')
         slash_pos = rest.find('/')
         qemark_pos = rest.find('?')
         if (slash_pos == -1) and (qemark_pos == -1):
@@ -300,25 +326,24 @@ class LDAPUrl:
             self.hostport = unquote(rest)
             self.dn = ''
             return
+        if slash_pos != -1 and (qemark_pos == -1 or (slash_pos < qemark_pos)):
+            # Slash separates DN from hostport
+            self.hostport = unquote(rest[:slash_pos], encoding='utf-8')
+            # Eat the slash from rest
+            rest = rest[slash_pos + 1 :]
+        elif qemark_pos != 1 and (slash_pos == -1 or (slash_pos > qemark_pos)):
+            # Question mark separates hostport from rest, DN is assumed to be empty
+            self.hostport = unquote(rest[:qemark_pos], encoding='utf-8')
+            # Do not eat question mark
+            rest = rest[qemark_pos:]
         else:
-            if slash_pos != -1 and (qemark_pos == -1 or (slash_pos < qemark_pos)):
-                # Slash separates DN from hostport
-                self.hostport = unquote(rest[:slash_pos])
-                # Eat the slash from rest
-                rest = rest[slash_pos + 1 :]
-            elif qemark_pos != 1 and (slash_pos == -1 or (slash_pos > qemark_pos)):
-                # Question mark separates hostport from rest, DN is assumed to be empty
-                self.hostport = unquote(rest[:qemark_pos])
-                # Do not eat question mark
-                rest = rest[qemark_pos:]
-            else:
-                raise ValueError('Something completely weird happened!')
+            raise ValueError('Something completely weird happened!')
         paramlist = rest.split('?', 4)
         paramlist_len = len(paramlist)
         if paramlist_len >= 1:
-            self.dn = unquote(paramlist[0]).strip()
+            self.dn = unquote(paramlist[0], encoding='utf-8').strip()
         if (paramlist_len >= 2) and (paramlist[1]):
-            self.attrs = unquote(paramlist[1].strip()).split(',')
+            self.attrs = unquote(paramlist[1].strip(), encoding='utf-8').split(',')
         if paramlist_len >= 3:
             scope = paramlist[2].strip()
             try:
@@ -330,7 +355,7 @@ class LDAPUrl:
             if not filterstr:
                 self.filterstr = None
             else:
-                self.filterstr = unquote(filterstr)
+                self.filterstr = unquote(filterstr, encoding='utf-8')
         if paramlist_len >= 5:
             if paramlist[4]:
                 self.extensions = LDAPUrlExtensions()
@@ -441,7 +466,7 @@ class LDAPUrl:
                 # Add appropriate extension
                 if self.extensions is None:
                     self.extensions = LDAPUrlExtensions()
-                self.extensions[extype] = LDAPUrlExtension(extype=extype, exvalue=unquote(value))
+                self.extensions[extype] = LDAPUrlExtension(extype=extype, exvalue=unquote(value, encoding='utf-8'))
         else:
             self.__dict__[name] = value
 
