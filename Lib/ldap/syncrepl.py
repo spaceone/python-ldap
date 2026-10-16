@@ -92,7 +92,7 @@ class SyncRequestControl(RequestControl):
         criticality: int | bool = True,
         cookie: str | bytes | None = None,
         mode: str = 'refreshOnly',
-        reloadHint: bool = False,
+        reloadHint: bool | None = None,
     ) -> None:
         self.criticality = bool(criticality)
         self.cookie = cookie
@@ -104,7 +104,7 @@ class SyncRequestControl(RequestControl):
         rcv.setComponentByName('mode', SyncRequestMode(self.mode))
         if self.cookie is not None:
             rcv.setComponentByName('cookie', SyncCookie(self.cookie))
-        if self.reloadHint:
+        if self.reloadHint is not None:
             rcv.setComponentByName('reloadHint', univ.Boolean(self.reloadHint))
         return encoder.encode(rcv)  # type: ignore
 
