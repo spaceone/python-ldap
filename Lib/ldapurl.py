@@ -79,8 +79,16 @@ class LDAPUrlExtension:
             Value of extension
     """
 
+    critical: bool
+    extype: str | None
+    exvalue: str | None
+
     def __init__(
-        self, extensionStr: str | None = None, critical: int = 0, extype: str | None = None, exvalue: str | None = None
+        self,
+        extensionStr: str | None = None,
+        critical: bool = False,
+        extype: str | None = None,
+        exvalue: str | None = None,
     ) -> None:
         self.critical = critical
         self.extype = extype
@@ -221,6 +229,13 @@ class LDAPUrl:
     """
 
     attr2extype = {'who': 'bindname', 'cred': 'X-BINDPW'}
+    urlscheme: str | None
+    hostport: str | None
+    dn: str | None
+    attrs: List[str] | None
+    scope: int | None
+    filterstr: str | None
+    extensions: LDAPUrlExtensions | None
 
     def __init__(
         self,
