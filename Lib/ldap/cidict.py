@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
-class cidict(MutableMappingType[str, T]):
+class CIDict(MutableMappingType[str, T]):
     """
     Case-insensitive but case-respecting dictionary.
     """
@@ -93,11 +93,14 @@ class cidict(MutableMappingType[str, T]):
     def data(self) -> dict[str, T]:
         """Compatibility with older IterableUserDict-based implementation"""
         warnings.warn(
-            'ldap.cidict.cidict.data is an internal attribute; it may be ' + 'removed at any time',
+            'ldap.cidict.CIDict.data is an internal attribute; it may be ' + 'removed at any time',
             category=DeprecationWarning,
             stacklevel=2,
         )
         return self._data
+
+
+cidict = CIDict
 
 
 def strlist_minus(a: list[str], b: list[str]) -> list[str]:
@@ -110,7 +113,7 @@ def strlist_minus(a: list[str], b: list[str]) -> list[str]:
         category=DeprecationWarning,
         stacklevel=2,
     )
-    temp: cidict[str] = cidict()
+    temp: CIDict[str] = CIDict()
     for elt in b:
         temp[elt] = elt
     result = [elt for elt in a if elt not in temp]
@@ -126,7 +129,7 @@ def strlist_intersection(a: list[str], b: list[str]) -> list[str]:
         category=DeprecationWarning,
         stacklevel=2,
     )
-    temp: cidict[str] = cidict()
+    temp: CIDict[str] = CIDict()
     for elt in a:
         temp[elt] = elt
     result = [temp[elt] for elt in b if elt in temp]
@@ -142,7 +145,7 @@ def strlist_union(a: list[str], b: list[str]) -> list[str]:
         category=DeprecationWarning,
         stacklevel=2,
     )
-    temp: cidict[str] = cidict()
+    temp: CIDict[str] = CIDict()
     for elt in a:
         temp[elt] = elt
     for elt in b:

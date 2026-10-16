@@ -1067,7 +1067,7 @@ class SimpleLDAPObject:
             return None
         try:
             if r:
-                e = ldap.cidict.cidict(r[0][1])
+                e = ldap.cidict.CIDict(r[0][1])
                 search_subschemasubentry_dn = e.get(attrname, [b''])[0]
                 if search_subschemasubentry_dn == b'':
                     if dn:

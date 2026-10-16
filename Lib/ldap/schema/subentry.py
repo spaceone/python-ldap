@@ -16,12 +16,12 @@ import ldap.schema
 import ldapurl
 import ldif
 from ldap._types import LDAPEntryDict
-from ldap.cidict import cidict
+from ldap.cidict import CIDict
 
 
 # Maps schema element description (from class.schema_attribute,
 # e.g. 'ObjectClass') to the schema class.
-SCHEMA_CLASS_MAPPING: cidict[type[SchemaElement]] = cidict()
+SCHEMA_CLASS_MAPPING: CIDict[type[SchemaElement]] = CIDict()
 
 # The reverse of SCHEMA_CLASS_MAPPING
 SCHEMA_ATTR_MAPPING: dict[type[SchemaElement], str] = {}
@@ -100,7 +100,7 @@ class SubSchema:
     ) -> None:
 
         # SchemaElement class -> Element name -> Element OID
-        self.name2oid: dict[type[SchemaElement], cidict[str]] = {}
+        self.name2oid: dict[type[SchemaElement], CIDict[str]] = {}
 
         # SchemaElement class -> Element OID -> Element object instance
         self.sed: dict[type[SchemaElement], dict[str, SchemaElement]] = {}
@@ -108,19 +108,19 @@ class SubSchema:
         # Temporary set to hold OIDs which are not unique
         non_unique_oids: set[str] = set()
 
-        # Dict mapping schema element class to a cidict where keys are used to
+        # Dict mapping schema element class to a CIDict where keys are used to
         # indicate OIDs with duplicate names (values are not used)
         # FIXME: this seems incomplete (cf. class docstring above and
         # compare to how non_unique_oids is handled at the end)
-        self.non_unique_names: dict[type[SchemaElement], cidict[None]] = {}
+        self.non_unique_names: dict[type[SchemaElement], CIDict[None]] = {}
 
         for c in SCHEMA_CLASS_MAPPING.values():
-            self.name2oid[c] = cidict()
+            self.name2oid[c] = CIDict()
             self.sed[c] = {}
-            self.non_unique_names[c] = cidict()
+            self.non_unique_names[c] = CIDict()
 
         # Transform entry dict to case-insensitive dict
-        e: LDAPEntryDict = cidict(sub_schema_sub_entry)
+        e: LDAPEntryDict = CIDict(sub_schema_sub_entry)
 
         # Build the schema registry in dictionaries
         for attr_type in SCHEMA_ATTRS:
@@ -146,7 +146,7 @@ class SubSchema:
                 self.sed[se_class][se_id] = se_instance
 
                 if hasattr(se_instance, 'names'):
-                    for name in cidict({}.fromkeys(se_instance.names)):
+                    for name in CIDict({}.fromkeys(se_instance.names)):
                         # FIXME: should match behaviour for OIDs above?
                         if check_uniqueness and name in self.name2oid[se_class]:
                             self.non_unique_names[se_class][se_id] = None
@@ -217,9 +217,9 @@ class SubSchema:
         self,
         schema_element_class: type[ObjectClass | AttributeType],
         schema_element_filters: Iterable[tuple[str, Iterable[str | int]]] | None = None,
-    ) -> cidict[list[str]]:
+    ) -> CIDict[list[str]]:
         """
-        Returns a ldap.cidict.cidict dictionary representing the
+        Returns a ldap.CIDict.CIDict dictionary representing the
         tree structure of the schema elements.
 
         The dict will have the key '_' as the root element, and each
@@ -240,7 +240,7 @@ class SubSchema:
         assert schema_element_class in [ObjectClass, AttributeType]
         avail_se = self.listall(schema_element_class, schema_element_filters)
         top_node = '_'
-        tree: cidict[list[str]] = cidict({top_node: []})
+        tree: CIDict[list[str]] = CIDict({top_node: []})
         # 1. Pass: Register all nodes
         for se in avail_se:
             tree[se] = []
@@ -431,13 +431,13 @@ class SubSchema:
         attr_type_filter: Iterable[tuple[str, Iterable[str | int]]] | None = None,
         raise_keyerror: int = 1,
         ignore_dit_content_rule: int = 0,
-    ) -> tuple[cidict[AttributeType | None], cidict[AttributeType | None]]:
+    ) -> tuple[CIDict[AttributeType | None], CIDict[AttributeType | None]]:
         """
         Returns a 2-tuple of all must and may attributes including
         all inherited attributes of superior object classes
         by walking up classes along the SUP attribute.
 
-        The attributes are stored in ldap.cidict.cidict dictionaries.
+        The attributes are stored in ldap.CIDict.CIDict dictionaries.
 
         object_class_list
             list of strings specifying object class names or OIDs
@@ -459,8 +459,8 @@ class SubSchema:
         # Initialize
         oid_cache: dict[str, None] = {}
 
-        r_must: cidict[ldap.schema.models.AttributeType | None] = cidict()
-        r_may: cidict[ldap.schema.models.AttributeType | None] = cidict()
+        r_must: CIDict[ldap.schema.models.AttributeType | None] = CIDict()
+        r_may: CIDict[ldap.schema.models.AttributeType | None] = CIDict()
 
         if '1.3.6.1.4.1.1466.101.120.111' in object_class_oids:
             # Object class 'extensibleObject' MAY carry every attribute type
@@ -585,7 +585,7 @@ def urlfetch(
             subschemasubentry_dn, s_temp = ldif_parser.all_records[0]
 
     # Work-around for mixed-cased attribute names
-    subschemasubentry_entry: MutableMapping[str, list[bytes]] = cidict()
+    subschemasubentry_entry: MutableMapping[str, list[bytes]] = CIDict()
     s_temp = s_temp or {}
     for at, av in s_temp.items():
         if at in SCHEMA_CLASS_MAPPING:
