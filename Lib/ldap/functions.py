@@ -20,6 +20,7 @@ __all__ = [
     'strp_secs',
 ]
 
+import datetime
 import pprint
 import sys
 import time
@@ -35,6 +36,9 @@ from ldap.ldapobject import LDAPObject
 if __debug__:
     # Tracing is only supported in debugging mode
     import traceback
+
+# format string used for Generalized Time attributes values with UTC
+DATETIME_FORMAT_UTC = r'%Y%m%d%H%M%SZ'
 
 
 def _ldap_function_call(
@@ -128,23 +132,78 @@ def set_option(option: int, invalue: Any) -> int:
     return _ldap_function_call(None, _ldap.set_option, option, invalue)  # type: ignore
 
 
-def escape_str(escape_func: Callable[[str], str], s: str, *args: str) -> str:
+def escape_str(escape_func: Callable[[str], str], fmt: str, *args: str) -> str:
     """
     Applies escape_func() to all items of `args' and returns a string based
     on format string `s'.
     """
-    return s % tuple(escape_func(v) for v in args)
+    return fmt % tuple(escape_func(v) for v in args)
 
 
 def strf_secs(secs: float) -> str:
     """
     Convert seconds since epoch to a string compliant to LDAP syntax GeneralizedTime
     """
-    return time.strftime('%Y%m%d%H%M%SZ', time.gmtime(secs))
+    return time.strftime(DATETIME_FORMAT_UTC, time.gmtime(secs))
 
 
-def strp_secs(dt_str: str) -> int:
+def strp_secs(dt_str: str) -> float:
     """
     Convert LDAP syntax GeneralizedTime to seconds since epoch
     """
-    return timegm(time.strptime(dt_str, '%Y%m%d%H%M%SZ'))
+    return timegm(time.strptime(dt_str, DATETIME_FORMAT_UTC))
+
+
+def str2datetime(time_str: str):
+    """
+    Parse GeneralizedTime (UTC) string to datetime.datetime instance
+    """
+    return datetime.datetime.strptime(time_str, DATETIME_FORMAT_UTC)
+
+
+def datetime2str(time_dt) -> str:
+    """
+    Return datetime as string formatted as GeneralizedTime (UTC)
+    """
+    return datetime.datetime.strftime(time_dt, DATETIME_FORMAT_UTC)
+
+
+def is_expired(
+    start: str | bytes | datetime.datetime,
+    max_age: str | bytes | float | datetime.timedelta,
+    now: datetime.datetime | None = None,
+    disable_secs: float = 0,
+) -> bool:
+    """
+    Check expiry of something based on start date and time
+    and a timespan.
+
+    Returns True if start + max_age > now
+    """
+    if isinstance(start, bytes):
+        start = str2datetime(start.decode('utf-8'))
+    elif isinstance(start, str):
+        start = str2datetime(start)
+    elif isinstance(start, (int, float)):
+        start = datetime.datetime.fromtimestamp(start)
+    if isinstance(max_age, (str, bytes, float)):
+        max_age = datetime.timedelta(seconds=int(max_age))
+    elif isinstance(max_age, int):
+        max_age = datetime.timedelta(seconds=max_age)
+    if max_age.seconds <= disable_secs or not start:
+        # nothing to check
+        return False
+    return (start + max_age) < (now or datetime.datetime.utcnow())
+
+
+def attr_set(attrs_str: str) -> set[str]:
+    """
+    Splits string with space or comma-separated list of attribute names
+    and returns a set with white-space stripped values
+    """
+    res = set()
+    for attr in (attrs_str or '').strip().replace(' ', ',').split(','):
+        attr = attr.strip()
+        if attr:
+            res.add(attr)
+    return res
