@@ -5,40 +5,55 @@ See https://www.python-ldap.org/ for details.
 """
 
 from __future__ import annotations
+from itertools import combinations
 
-import copy
-import warnings
-from collections.abc import Iterable, MutableMapping
-from typing import Any, TypeVar
-from urllib.request import urlopen
-
-import ldap.schema
-import ldapurl
-import ldif
-from ldap._types import LDAPEntryDict
-from ldap.cidict import CIDict
-
-
-# Maps schema element description (from class.schema_attribute,
-# e.g. 'ObjectClass') to the schema class.
-SCHEMA_CLASS_MAPPING: CIDict[type[SchemaElement]] = CIDict()
-
-# The reverse of SCHEMA_CLASS_MAPPING
-SCHEMA_ATTR_MAPPING: dict[type[SchemaElement], str] = {}
-
-# Note: this cannot be moved up due to circular imports:
-#       ldap.schema.models imports the two dicts above
-from ldap.schema.models import (  # noqa: E402
+from ..cidict import CIDict
+from ..dn import DNObj
+from .models import (
     AttributeType,
     DITContentRule,
+    DITStructureRule,
+    LDAPSyntax,
+    MatchingRule,
+    MatchingRuleUse,
+    NameForm,
     ObjectClass,
-    SchemaElement,
+    SchemaElementOIDSet,
 )
 
 
-SchemaElementSubclass = TypeVar('SchemaElementSubclass', bound=SchemaElement)
+__all__ = [
+    'SCHEMA_ATTR_MAPPING',
+    'SCHEMA_CLASS_MAPPING',
+    'NameNotUnique',
+    'OIDNotUnique',
+    'SubSchema',
+    'SubschemaError',
+]
 
-SCHEMA_ATTRS = list(SCHEMA_CLASS_MAPPING)
+SCHEMA_ATTR_MAPPING = {
+    AttributeType: AttributeType.schema_attribute,
+    DITContentRule: DITContentRule.schema_attribute,
+    DITStructureRule: DITStructureRule.schema_attribute,
+    LDAPSyntax: LDAPSyntax.schema_attribute,
+    MatchingRule: MatchingRule.schema_attribute,
+    MatchingRuleUse: MatchingRuleUse.schema_attribute,
+    NameForm: NameForm.schema_attribute,
+    ObjectClass: ObjectClass.schema_attribute,
+}
+SCHEMA_CLASS_MAPPING = CIDict(
+    {
+        AttributeType.schema_attribute: AttributeType,
+        DITContentRule.schema_attribute: DITContentRule,
+        DITStructureRule.schema_attribute: DITStructureRule,
+        LDAPSyntax.schema_attribute: LDAPSyntax,
+        MatchingRule.schema_attribute: MatchingRule,
+        MatchingRuleUse.schema_attribute: MatchingRuleUse,
+        NameForm.schema_attribute: NameForm,
+        ObjectClass.schema_attribute: ObjectClass,
+    }
+)
+SCHEMA_ATTRS = list(SCHEMA_CLASS_MAPPING.keys())
 
 
 class SubschemaError(ValueError):
@@ -95,32 +110,23 @@ class SubSchema:
 
     def __init__(
         self,
-        sub_schema_sub_entry: LDAPEntryDict,
-        check_uniqueness: int = 1,
-    ) -> None:
+        sub_schema_sub_entry,
+        subentry_dn=None,
+        check_uniqueness=True,
+    ):
 
-        # SchemaElement class -> Element name -> Element OID
-        self.name2oid: dict[type[SchemaElement], CIDict[str]] = {}
-
-        # SchemaElement class -> Element OID -> Element object instance
-        self.sed: dict[type[SchemaElement], dict[str, SchemaElement]] = {}
-
-        # Temporary set to hold OIDs which are not unique
-        non_unique_oids: set[str] = set()
-
-        # Dict mapping schema element class to a CIDict where keys are used to
-        # indicate OIDs with duplicate names (values are not used)
-        # FIXME: this seems incomplete (cf. class docstring above and
-        # compare to how non_unique_oids is handled at the end)
-        self.non_unique_names: dict[type[SchemaElement], CIDict[None]] = {}
-
+        # Initialize all dictionaries
+        self.name2oid = {}
+        self.sed = {}
+        self.non_unique_oids = {}
+        self.non_unique_names = {}
         for c in SCHEMA_CLASS_MAPPING.values():
-            self.name2oid[c] = CIDict()
+            self.name2oid[c] = CIDict(keytype=str)
             self.sed[c] = {}
-            self.non_unique_names[c] = CIDict()
+            self.non_unique_names[c] = CIDict(keytype=str)
 
         # Transform entry dict to case-insensitive dict
-        e: LDAPEntryDict = CIDict(sub_schema_sub_entry)
+        e = CIDict(sub_schema_sub_entry, keytype=str)
 
         # Build the schema registry in dictionaries
         for attr_type in SCHEMA_ATTRS:
@@ -130,7 +136,7 @@ class SubSchema:
                 se_id = se_instance.get_id()
 
                 if check_uniqueness and se_id in self.sed[se_class]:
-                    non_unique_oids.add(se_id)
+                    self.non_unique_oids[se_id] = None
                     if check_uniqueness == 1:
                         # Add to subschema by adding suffix to ID
                         suffix_counter = 1
@@ -140,24 +146,23 @@ class SubSchema:
                             suffix_counter += 1
                         se_id = new_se_id
                     elif check_uniqueness >= 2:
-                        raise OIDNotUnique(attr_value.decode('utf-8', errors='backslashreplace'))
+                        raise OIDNotUnique(attr_value)
 
                 # Store the schema element instance in the central registry
                 self.sed[se_class][se_id] = se_instance
 
                 if hasattr(se_instance, 'names'):
                     for name in CIDict({}.fromkeys(se_instance.names)):
-                        # FIXME: should match behaviour for OIDs above?
                         if check_uniqueness and name in self.name2oid[se_class]:
                             self.non_unique_names[se_class][se_id] = None
-                            raise NameNotUnique(attr_value.decode('utf-8', errors='backslashreplace'))
-                        else:
-                            self.name2oid[se_class][name] = se_id
+                            raise NameNotUnique(attr_value)
+                        self.name2oid[se_class][name] = se_id
 
-        # Turn set into list, maybe more handy for applications
-        self.non_unique_oids = list(non_unique_oids)
-
-        # return subSchema.__init__()
+        # Turn dict into list maybe more handy for applications
+        self.non_unique_oids = self.non_unique_oids.keys()
+        self.subentry_dn = subentry_dn
+        self.no_user_mod_attr_oids = self.determine_no_user_mod_attrs()
+        # end of SubSchema()
 
     def ldap_entry(self) -> dict[str, list[str]]:
         """
@@ -255,20 +260,15 @@ class SubSchema:
             assert se_obj.__class__ == schema_element_class, (
                 f'Schema element referenced by {se_oid} must be of class {schema_element_class.__name__} but was {se_obj.__class__}'
             )
-            for s in getattr(se_obj, 'sup', ()) or ('_',):
-                sup_oid = self.getoid(schema_element_class, s)
+            for s in se_obj.sup or ('_',):
+                sup_oid = self.get_oid(schema_element_class, s)
                 try:
                     tree[sup_oid].append(se_oid)
                 except KeyError:
                     continue
         return tree
 
-    def getoid(
-        self,
-        se_class: type[SchemaElementSubclass],
-        nameoroid: str,
-        raise_keyerror: int = 0,
-    ) -> str:
+    def get_oid(self, se_class, nameoroid, raise_keyerror=0):
         """
         Get an OID by name or OID
         """
@@ -276,15 +276,17 @@ class SubSchema:
         if nameoroid_stripped in self.sed[se_class]:
             # name_or_oid is already a registered OID
             return nameoroid_stripped
-        else:
-            try:
-                result_oid = self.name2oid[se_class][nameoroid_stripped]
-            except KeyError:
-                if raise_keyerror:
-                    raise KeyError(f'No registered {se_class.__name__}-OID for nameoroid {nameoroid_stripped!r}')
-                else:
-                    result_oid = nameoroid_stripped
+        try:
+            # try to look up OID by name
+            result_oid = self.name2oid[se_class][nameoroid_stripped]
+        except KeyError:
+            if raise_keyerror:
+                # raise error so zhe caller has to deal with it
+                raise KeyError(f'No registered {se_class.__name__}-OID for nameoroid {nameoroid_stripped!r}')
+            # just return the name
+            result_oid = nameoroid_stripped
         return result_oid
+        # end of get_oid()
 
     def get_inheritedattr(
         self,
@@ -299,19 +301,13 @@ class SubSchema:
 
         Raises KeyError if no schema element is found by nameoroid.
         """
-        se = self.sed[se_class][self.getoid(se_class, nameoroid)]
+        se = self.sed[se_class][self.get_oid(se_class, nameoroid)]
         try:
             result = getattr(se, name)
         except AttributeError:
             result = None
-        if result is None and hasattr(se, 'sup') and se.sup:
-            assert isinstance(se.sup, list)
-            # FIXME: sup can be multi-valued
+        if result is None and se.sup:
             result = self.get_inheritedattr(se_class, se.sup[0], name)
-
-        # The return type could be something like this:
-        # tuple[str, ...] | tuple[None] | str | int | None
-        # But we have no control over what is passed as "name"...
         return result
 
     def get_obj(
@@ -324,7 +320,7 @@ class SubSchema:
         """
         Get a schema element by name or OID
         """
-        se_oid = self.getoid(se_class, nameoroid)
+        se_oid = self.get_oid(se_class, nameoroid)
         try:
             se_obj = self.sed[se_class][se_oid]
         except KeyError:
@@ -332,12 +328,7 @@ class SubSchema:
                 raise KeyError(
                     f'No ldap.schema.{se_class.__name__} instance with nameoroid {nameoroid!r} and se_oid {se_oid!r}'
                 )
-            elif default is None:
-                return None
-            else:
-                se_obj = default
-
-        assert isinstance(se_obj, se_class)
+            se_obj = default
         return se_obj
 
     def get_inheritedobj(
@@ -350,13 +341,10 @@ class SubSchema:
         Get a schema element by name or OID with all class attributes
         set including inherited class attributes
         """
-        # FIXME: could use a TypeVar to limit the return value to an se_class instance
-        inherited = inherited or []
-        se = copy.copy(self.sed[se_class].get(self.getoid(se_class, nameoroid)))
-        if se is None:
-            return None
-        assert isinstance(se, se_class)
+        import copy
 
+        inherited = inherited or []
+        se = copy.copy(self.sed[se_class].get(self.get_oid(se_class, nameoroid)))
         if se and hasattr(se, 'sup'):
             for class_attr_name in inherited:
                 setattr(se, class_attr_name, self.get_inheritedattr(se_class, nameoroid, class_attr_name))
@@ -367,16 +355,11 @@ class SubSchema:
         """
         Get the syntax of an attribute type specified by name or OID
         """
-        at_oid = self.getoid(AttributeType, nameoroid)
         try:
-            at_obj = self.get_inheritedobj(AttributeType, at_oid)
+            syntax = self.get_inheritedattr(AttributeType, nameoroid, 'syntax')
         except KeyError:
             return None
-
-        if at_obj is None:
-            return None
-        else:
-            return at_obj.syntax
+        return syntax
 
     def get_structural_oc(self, oc_list: Iterable[str]) -> str | None:
         """
@@ -384,28 +367,21 @@ class SubSchema:
         if any is present. Returns None else.
         """
         # Get tree of all STRUCTURAL object classes
-        oc_tree = self.tree(ObjectClass, [('kind', [0])])
+        oc_tree = self.tree(ObjectClass, [('kind', {0})])
         # Filter all STRUCTURAL object classes
-        struct_ocs = set()
+        struct_ocs = {}
         for oc_nameoroid in oc_list:
             oc_se = self.get_obj(ObjectClass, oc_nameoroid, None)
             if oc_se and oc_se.kind == 0:
-                struct_ocs.add(oc_se.oid)
+                struct_ocs[oc_se.oid] = None
         result = None
-        # Build a copy of the oid list, to be cleaned as we go.
-        struct_oc_list = list(struct_ocs)
+        struct_oc_list = list(struct_ocs.keys())
         while struct_oc_list:
             oid = struct_oc_list.pop()
             for child_oid in oc_tree[oid]:
-                if self.getoid(ObjectClass, child_oid) in struct_ocs:
+                if self.get_oid(ObjectClass, child_oid) in struct_ocs:
                     break
             else:
-                if result is not None:
-                    warnings.warn(
-                        f'multiple leaf structural objectclasses: {result}, {oid}',
-                        category=DeprecationWarning,
-                        stacklevel=2,
-                    )
                 result = oid
         return result
 
@@ -420,10 +396,9 @@ class SubSchema:
         content_rule = self.get_obj(DITContentRule, nameoroid)
         if content_rule:
             # Return AUXILIARY object classes from DITContentRule instance
-            return list(content_rule.aux)
-        else:
-            # list all AUXILIARY object classes
-            return self.listall(ObjectClass, [('kind', [2])])
+            return content_rule.aux
+        # list all AUXILIARY object classes
+        return self.listall(ObjectClass, [('kind', [2])])
 
     def attribute_types(  # noqa: C901
         self,
@@ -451,21 +426,16 @@ class SubSchema:
             A DIT content rule governing the structural object class
             is ignored
         """
-        AttributeType = ldap.schema.models.AttributeType
-        ObjectClass = ldap.schema.models.ObjectClass
 
         # Map object_class_list to object_class_oids (list of OIDs)
-        object_class_oids = [self.getoid(ObjectClass, o) for o in object_class_list]
+        object_class_oids = [self.get_oid(ObjectClass, o) for o in object_class_list]
         # Initialize
-        oid_cache: dict[str, None] = {}
+        oid_cache = {}
 
-        r_must: CIDict[ldap.schema.models.AttributeType | None] = CIDict()
-        r_may: CIDict[ldap.schema.models.AttributeType | None] = CIDict()
-
+        r_must, r_may = CIDict(), CIDict()
         if '1.3.6.1.4.1.1466.101.120.111' in object_class_oids:
             # Object class 'extensibleObject' MAY carry every attribute type
             for at_obj in self.sed[AttributeType].values():
-                assert isinstance(at_obj, AttributeType), ValueError(at_obj.oid)
                 r_may[at_obj.oid] = at_obj
 
         # Loop over OIDs of all given object classes
@@ -488,13 +458,13 @@ class SubSchema:
             assert hasattr(object_class, 'must'), ValueError(object_class_oid)
             assert hasattr(object_class, 'may'), ValueError(object_class_oid)
             for a in object_class.must:
-                se_oid = self.getoid(AttributeType, a, raise_keyerror=raise_keyerror)
+                se_oid = self.get_oid(AttributeType, a, raise_keyerror=raise_keyerror)
                 r_must[se_oid] = self.get_obj(AttributeType, se_oid, raise_keyerror=raise_keyerror)
             for a in object_class.may:
-                se_oid = self.getoid(AttributeType, a, raise_keyerror=raise_keyerror)
+                se_oid = self.get_oid(AttributeType, a, raise_keyerror=raise_keyerror)
                 r_may[se_oid] = self.get_obj(AttributeType, se_oid, raise_keyerror=raise_keyerror)
 
-            object_class_oids.extend([self.getoid(ObjectClass, o) for o in object_class.sup])
+            object_class_oids.extend([self.get_oid(ObjectClass, o) for o in object_class.sup])
 
         # Process DIT content rules
         if not ignore_dit_content_rule:
@@ -507,15 +477,14 @@ class SubSchema:
                     # No DIT content rule found for structural objectclass
                     pass
                 else:
-                    assert dit_content_rule is not None
                     for a in dit_content_rule.must:
-                        se_oid = self.getoid(AttributeType, a, raise_keyerror=raise_keyerror)
+                        se_oid = self.get_oid(AttributeType, a, raise_keyerror=raise_keyerror)
                         r_must[se_oid] = self.get_obj(AttributeType, se_oid, raise_keyerror=raise_keyerror)
                     for a in dit_content_rule.may:
-                        se_oid = self.getoid(AttributeType, a, raise_keyerror=raise_keyerror)
+                        se_oid = self.get_oid(AttributeType, a, raise_keyerror=raise_keyerror)
                         r_may[se_oid] = self.get_obj(AttributeType, se_oid, raise_keyerror=raise_keyerror)
                     for a in dit_content_rule.nots:
-                        a_oid = self.getoid(AttributeType, a, raise_keyerror=raise_keyerror)
+                        a_oid = self.get_oid(AttributeType, a, raise_keyerror=raise_keyerror)
                         try:
                             del r_may[a_oid]
                         except KeyError:
@@ -546,56 +515,144 @@ class SubSchema:
                                 del l[a]
                                 break
 
-        return r_must, r_may  # attribute_types()
+        return r_must, r_may
 
+    def get_all_operational_attributes(self, only_user_editable=False):
+        """
+        Returns SchemaElementOIDSet with all operational attributes
+        """
+        res = SchemaElementOIDSet(self, AttributeType, [])
+        for at_obj in self.sed[AttributeType].values():
+            if at_obj.usage != 0 and (not only_user_editable or not (at_obj.no_user_mod or at_obj.collective)):
+                res.add(at_obj.oid)
+        return res
 
-def urlfetch(
-    uri: str,
-    trace_level: int = 0,
-) -> tuple[str | None, SubSchema | None]:
-    """
-    Fetches a parsed schema entry by uri.
+    def determine_no_user_mod_attrs(self):
+        result = {}.fromkeys([a.oid for a in self.sed[AttributeType].values() if a.no_user_mod])
+        return result
 
-    If uri is a LDAP URL the LDAP server is queried directly.
-    Otherwise uri is assumed to point to a LDIF file which
-    is loaded with urllib.
-    """
-    uri = uri.strip()
-    if uri.startswith(('ldap:', 'ldaps:', 'ldapi:')):
-        ldap_url = ldapurl.LDAPUrl(uri)
+    def get_associated_name_forms(self, structural_object_class_oid):
+        """
+        Returns a list of instances of NameForm
+        representing all name forms associated with the current structural
+        object class of this entry.
 
-        l = ldap.initialize(ldap_url.initializeUrl(), trace_level)
-        l.protocol_version = ldap.VERSION3
-        l.simple_bind_s(ldap_url.who or '', ldap_url.cred or '')
-        subschemasubentry_dn = l.search_subschemasubentry_s(ldap_url.dn)
-        if subschemasubentry_dn is None:
-            s_temp = None
+        The structural object class is determined by attribute
+        'structuralObjectClass' if it exists or by calling
+        method get_structural_oc() if not.
+        """
+        if structural_object_class_oid is None:
+            return []
+        structural_object_class_obj = self.get_obj(ObjectClass, structural_object_class_oid)
+        if structural_object_class_obj:
+            structural_object_class_names = [oc_name.lower() for oc_name in structural_object_class_obj.names or ()]
         else:
-            if ldap_url.attrs is None:
-                schema_attrs = SCHEMA_ATTRS
-            else:
-                schema_attrs = ldap_url.attrs
-            s_temp = l.read_subschemasubentry_s(subschemasubentry_dn, attrs=schema_attrs)
-        l.unbind_s()
-        del l
-    else:
-        with urlopen(uri) as ldif_file:
-            ldif_parser = ldif.LDIFRecordList(ldif_file, max_entries=1)
-            ldif_parser.parse()
-            subschemasubentry_dn, s_temp = ldif_parser.all_records[0]
+            structural_object_class_names = ()
+        result = []
+        for name_form_obj in self.sed[NameForm].values():
+            if not name_form_obj.obsolete and (
+                name_form_obj.oc == structural_object_class_oid
+                or name_form_obj.oc.lower() in structural_object_class_names
+            ):
+                result.append(name_form_obj)
+        return result
 
-    # Work-around for mixed-cased attribute names
-    subschemasubentry_entry: MutableMapping[str, list[bytes]] = CIDict()
-    s_temp = s_temp or {}
-    for at, av in s_temp.items():
-        if at in SCHEMA_CLASS_MAPPING:
-            try:
-                subschemasubentry_entry[at].extend(av)
-            except KeyError:
-                subschemasubentry_entry[at] = av
-    # Finally parse the schema
-    if subschemasubentry_dn is not None:
-        parsed_sub_schema = SubSchema(subschemasubentry_entry)
-    else:
-        parsed_sub_schema = None
-    return subschemasubentry_dn, parsed_sub_schema
+    def get_rdn_variants(self, structural_object_class_oid):
+        rdn_variants = []
+        for name_form_obj in self.get_associated_name_forms(structural_object_class_oid):
+            rdn_variants.append((name_form_obj, name_form_obj.must))
+            for l in range(1, len(name_form_obj.may)):
+                for i in combinations(name_form_obj.may, l):
+                    rdn_variants.append((name_form_obj, name_form_obj.must + i))
+        return rdn_variants
+
+    def get_rdn_templates(self, structural_object_class_oid):
+        """
+        convert the tuple RDN combinations to RDN template strings
+        """
+        rdn_attr_tuples = {}.fromkeys(
+            [rdn_attr_tuple for name_form_obj, rdn_attr_tuple in self.get_rdn_variants(structural_object_class_oid)]
+        ).keys()
+        return ['+'.join([f'{attr_type}=' for attr_type in attr_types]) for attr_types in rdn_attr_tuples]
+
+    def get_applicable_name_form_objs(self, dn, structural_object_class_oid):
+        """
+        Returns a list of instances of NameForm
+        representing all name form associated with the current structural
+        object class of this entry and matching the current RDN.
+        """
+        if dn:
+            rdn_list = DNObj.from_str(dn)[0]
+            current_rdn_attrs = [attr_type.lower() for attr_type, _ in rdn_list]
+            current_rdn_attrs.sort()
+        else:
+            current_rdn_attrs = []
+        result = []
+        for name_form_obj, rdn_attr_tuple in self.get_rdn_variants(structural_object_class_oid):
+            name_form_rdn_attrs = [attr_type.lower() for attr_type in rdn_attr_tuple]
+            name_form_rdn_attrs.sort()
+            if current_rdn_attrs == name_form_rdn_attrs:
+                result.append(name_form_obj)
+        return result
+
+    def get_possible_dit_structure_rules(self, dn, structural_object_class_oid):
+        name_form_identifiers = CIDict()
+        for name_form_obj in self.get_applicable_name_form_objs(dn, structural_object_class_oid):
+            name_form_identifiers[name_form_obj.oid] = None
+        dit_struct_ruleids = {}
+        for dit_struct_rule_obj in self.sed[DITStructureRule].values():
+            name_form_obj = self.get_obj(NameForm, dit_struct_rule_obj.form)
+            if (
+                name_form_obj is not None
+                and (name_form_obj.oid in name_form_identifiers)
+                and (self.get_oid(ObjectClass, name_form_obj.oc) == structural_object_class_oid)
+            ):
+                dit_struct_ruleids[dit_struct_rule_obj.ruleid] = dit_struct_rule_obj
+        return dit_struct_ruleids.keys()
+
+    def get_subord_structural_oc_names(self, ruleid):
+        subord_structural_oc_oids = {}
+        subord_structural_ruleids = {}
+        for dit_struct_rule_obj in self.sed[DITStructureRule].values():
+            for sup in dit_struct_rule_obj.sup:
+                if sup == ruleid:
+                    subord_structural_ruleids[dit_struct_rule_obj.ruleid] = None
+                    name_form_obj = self.get_obj(
+                        NameForm,
+                        dit_struct_rule_obj.form,
+                    )
+                    if name_form_obj:
+                        name_form_oid = self.get_oid(ObjectClass, name_form_obj.oc)
+                        subord_structural_oc_oids[name_form_oid] = None
+        result = []
+        for oc_oid in subord_structural_oc_oids:
+            oc_obj = self.get_obj(ObjectClass, oc_oid)
+            if oc_obj and oc_obj.names:
+                result.append(oc_obj.names[0])
+            else:
+                result.append(oc_oid)
+        return subord_structural_ruleids.keys(), result
+
+    def get_superior_structural_oc_names(self, ruleid):
+        try:
+            dit_struct_rule_obj = self.sed[DITStructureRule][ruleid]
+        except KeyError:
+            return None
+        else:
+            result = []
+            sup_ruleids = []
+            for sup_ruleid in dit_struct_rule_obj.sup:
+                try:
+                    sup_dit_struct_rule_obj = self.sed[DITStructureRule][sup_ruleid]
+                except KeyError:
+                    pass
+                else:
+                    if sup_dit_struct_rule_obj.form:
+                        sup_name_form_obj = self.get_obj(
+                            NameForm,
+                            sup_dit_struct_rule_obj.form,
+                        )
+                        if sup_name_form_obj:
+                            sup_ruleids.append(sup_ruleid)
+                            result.append(sup_name_form_obj.oc)
+        return sup_ruleids, result
