@@ -123,7 +123,7 @@ class SchemaElement:
 
     def __str__(self) -> str:
         result = [str(self.oid)]
-        result.append(self.key_attr('DESC', self.desc, quoted=1))
+        result.append(self.key_attr('DESC', self.desc, quoted=True))
         return '( {} )'.format(''.join(result))
 
 
@@ -212,14 +212,14 @@ class ObjectClass(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 self.key_list('SUP', self.sup, sep=' $ '),
                 {False: '', True: ' OBSOLETE'}[self.obsolete],
                 {0: ' STRUCTURAL', 1: ' ABSTRACT', 2: ' AUXILIARY'}[self.kind],
                 self.key_list('MUST', self.must, sep=' $ '),
                 self.key_list('MAY', self.may, sep=' $ '),
-                self.key_list('X-ORIGIN', self.x_origin, quoted=1),
+                self.key_list('X-ORIGIN', self.x_origin, quoted=True),
             )
         )
         return '( {} )'.format(''.join(result))
@@ -371,8 +371,8 @@ class AttributeType(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 self.key_list('SUP', self.sup, sep=' $ '),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
                 self.key_attr('EQUALITY', self.equality),
@@ -391,8 +391,8 @@ class AttributeType(SchemaElement):
                 {0: '', 1: ' USAGE directoryOperation', 2: ' USAGE distributedOperation', 3: ' USAGE dSAOperation'}[
                     self.usage
                 ],
-                self.key_list('X-ORIGIN', self.x_origin, quoted=1),
-                self.key_attr('X-ORDERED', self.x_ordered, quoted=1),
+                self.key_list('X-ORIGIN', self.x_origin, quoted=True),
+                self.key_attr('X-ORDERED', self.x_ordered, quoted=True),
             )
         )
         return '( {} )'.format(''.join(result))
@@ -440,8 +440,8 @@ class LDAPSyntax(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_attr('DESC', self.desc, quoted=1),
-                self.key_attr('X-SUBST', self.x_subst, quoted=1),
+                self.key_attr('DESC', self.desc, quoted=True),
+                self.key_attr('X-SUBST', self.x_subst, quoted=True),
                 {0: '', 1: " X-NOT-HUMAN-READABLE 'TRUE'"}[self.not_human_readable],
             )
         )
@@ -495,8 +495,8 @@ class MatchingRule(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
                 self.key_attr('SYNTAX', self.syntax),
             )
@@ -551,8 +551,8 @@ class MatchingRuleUse(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
                 self.key_list('APPLIES', self.applies, sep=' $ '),
             )
@@ -630,8 +630,8 @@ class DITContentRule(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
                 self.key_list('AUX', self.aux, sep=' $ '),
                 self.key_list('MUST', self.must, sep=' $ '),
@@ -702,10 +702,10 @@ class DITStructureRule(SchemaElement):
         result = [str(self.ruleid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
-                self.key_attr('FORM', self.form, quoted=0),
+                self.key_attr('FORM', self.form, quoted=False),
                 self.key_list('SUP', self.sup, sep=' $ '),
             )
         )
@@ -770,8 +770,8 @@ class NameForm(SchemaElement):
         result = [str(self.oid)]
         result.extend(
             (
-                self.key_list('NAME', self.names, quoted=1),
-                self.key_attr('DESC', self.desc, quoted=1),
+                self.key_list('NAME', self.names, quoted=True),
+                self.key_attr('DESC', self.desc, quoted=True),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
                 self.key_attr('OC', self.oc),
                 self.key_list('MUST', self.must, sep=' $ '),
@@ -879,7 +879,7 @@ class Entry(EntryBase):
     def attribute_types(
         self,
         attr_type_filter: list[tuple[str, list[str]]] | None = None,
-        raise_keyerror: int = 1,
+        raise_keyerror: bool = True,
     ) -> tuple[cidict[AttributeType | None], cidict[AttributeType | None]]:
         """
         Convenience wrapper around SubSchema.attribute_types() which
