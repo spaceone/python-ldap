@@ -15,26 +15,33 @@ assert _ldap.__version__ == __version__, ImportError(
 import ldap.functions  # noqa: E402
 
 
+# to be used with str.translate in escape_dn_chars()
+BASIC_ESCAPE_MAP = {
+    ord('\\'): '\\\\',  # must be first!
+    ord(','): '\\,',
+    ord('+'): '\\+',
+    ord('"'): '\\"',
+    ord('<'): '\\<',
+    ord('>'): '\\>',
+    ord(';'): '\\;',
+    ord('='): '\\=',
+    # RFC 4514 requires NULL (U+0000) to be escaped as hex pair "\00"
+    0: '\\00',
+}
+
+
 def escape_dn_chars(dn: str) -> str:
     """
     Escape all DN special characters found in dn
     with a back-slash (see RFC 4514, section 2.4)
     """
-    if dn:
-        dn = dn.replace('\\', '\\\\')
-        dn = dn.replace(',', '\\,')
-        dn = dn.replace('+', '\\+')
-        dn = dn.replace('"', '\\"')
-        dn = dn.replace('<', '\\<')
-        dn = dn.replace('>', '\\>')
-        dn = dn.replace(';', '\\;')
-        dn = dn.replace('=', '\\=')
-        # RFC 4514 requires NULL (U+0000) to be escaped as hex pair "\00"
-        dn = dn.replace('\x00', '\\00')
-        if dn[-1] == ' ':
-            dn = ''.join((dn[:-1], '\\ '))
-        if dn[0] == '#' or dn[0] == ' ':
-            dn = f'\\{dn}'
+    if not dn:
+        return dn
+    dn = dn.translate(BASIC_ESCAPE_MAP)
+    if dn.endswith(' '):
+        dn = f'{dn[:-1]}\\ '
+    if dn.startswith(('#', ' ')):
+        dn = f'\\{dn}'
     return dn
 
 
