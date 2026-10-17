@@ -270,7 +270,7 @@ class SubSchema:
         self,
         se_class: type[SchemaElementSubclass],
         nameoroid: str,
-        raise_keyerror: int = 0,
+        raise_keyerror: bool = False,
     ) -> str:
         """
         Get an OID by name or OID
@@ -316,7 +316,7 @@ class SubSchema:
         se_class: type[SchemaElementSubclass],
         nameoroid: str,
         default: SchemaElementSubclass | None = None,
-        raise_keyerror: int = 0,
+        raise_keyerror: bool = False,
     ) -> SchemaElementSubclass | None:
         """
         Get a schema element by name or OID
@@ -419,8 +419,8 @@ class SubSchema:
         self,
         object_class_list: Iterable[str],
         attr_type_filter: Iterable[tuple[str, Iterable[str | int]]] | None = None,
-        raise_keyerror: int = 1,
-        ignore_dit_content_rule: int = 0,
+        raise_keyerror: bool = True,
+        ignore_dit_content_rule: bool = False,
     ) -> tuple[cidict[AttributeType | None], cidict[AttributeType | None]]:
         """
         Returns a 2-tuple of all must and may attributes including
@@ -492,7 +492,7 @@ class SubSchema:
             if structural_oc:
                 # Process applicable DIT content rule
                 try:
-                    dit_content_rule = self.get_obj(DITContentRule, structural_oc, raise_keyerror=1)
+                    dit_content_rule = self.get_obj(DITContentRule, structural_oc, raise_keyerror=True)
                 except KeyError:
                     # No DIT content rule found for structural objectclass
                     pass
