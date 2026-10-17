@@ -18,6 +18,7 @@ __all__ = [
     'NOT_HUMAN_READABLE_LDAP_SYNTAXES',
     'OBJECTCLASS_KIND_STR',
     'AttributeType',
+    'AttributeUsage',
     'DITContentRule',
     'DITStructureRule',
     'Entry',
@@ -55,6 +56,8 @@ ATTRIBUTE_USAGE = CIDict(
     }
 )
 
+AttributeUsage = ATTRIBUTE_USAGE  # Backwards-compatible module alias
+
 OBJECTCLASS_KIND_STR = {0: 'STRUCTURAL', 1: 'ABSTRACT', 2: 'AUXILIARY'}
 
 
@@ -87,10 +90,12 @@ class SchemaElement:
     """
 
     __slots__ = (
+        '__dict__',  # Preserve custom attributes on schema elements.
         'desc',
         'obsolete',
         'oid',
     )
+    known_tokens = ['DESC', 'NAME']
     token_defaults: TokenDefaults = {
         'DESC': (None,),
     }
@@ -98,8 +103,14 @@ class SchemaElement:
     desc: str
 
     def __init__(self, schema_element_str=None):
+        if isinstance(schema_element_str, bytes):
+            schema_element_str = schema_element_str.decode('utf-8')
+        elif schema_element_str is not None and not isinstance(schema_element_str, str):
+            raise TypeError(f'schema_element_str must be str/bytes, was {schema_element_str!r}')
         if schema_element_str:
             tkl = split_tokens(schema_element_str)
+            if len(tkl) < 3 or tkl[0] != '(' or tkl[-1] != ')':
+                raise ValueError(tkl)
             self.set_id(tkl[1])
             opts = extract_tokens(tkl, self.token_defaults)
             self._set_attrs(opts)
@@ -115,25 +126,25 @@ class SchemaElement:
 
     @staticmethod
     def key_attr(key, value, quoted=0):
-        assert value is None or isinstance(value, str), TypeError('value has to be of str, was %r' % value)
+        assert value is None or isinstance(value, str), TypeError(f'value has to be of str, was {value!r}')
         if not value:
             return ''
         if quoted:
-            return " %s '%s'" % (key, value.replace("'", "\\'"))
-        return ' %s %s' % (key, value)
+            return " {} '{}'".format(key, value.replace("'", "\\'"))
+        return f' {key} {value}'
 
     @staticmethod
     def key_list(key, values, sep=' ', quoted=0):
-        assert isinstance(values, tuple), TypeError('values has to be a tuple, was %r' % values)
+        assert isinstance(values, tuple), TypeError(f'values has to be a tuple, was {values!r}')
         if not values:
             return ''
         if quoted:
-            quoted_values = ["'%s'" % value.replace("'", "\\'") for value in values]
+            quoted_values = ["'{}'".format(value.replace("'", "\\'")) for value in values]
         else:
             quoted_values = values
         if len(values) == 1:
-            return ' %s %s' % (key, quoted_values[0])
-        return ' %s ( %s )' % (key, sep.join(quoted_values))
+            return f' {key} {quoted_values[0]}'
+        return f' {key} ( {sep.join(quoted_values)} )'
 
     def __str__(self) -> str:
         result = [str(self.oid)]
@@ -188,6 +199,7 @@ class ObjectClass(SchemaElement):
         'names',
         'obsolete',
         'sup',
+        'x_origin',
     )
     schema_attribute = 'objectClasses'
     token_defaults: TokenDefaults = {
@@ -200,6 +212,7 @@ class ObjectClass(SchemaElement):
         'ABSTRACT': None,
         'MUST': (()),
         'MAY': (),
+        'X-ORIGIN': (),
     }
     names: Sequence[str]
 
@@ -209,6 +222,7 @@ class ObjectClass(SchemaElement):
         self.desc = opts['DESC'][0]
         self.must = opts['MUST']
         self.may = opts['MAY']
+        self.x_origin = opts['X-ORIGIN']
         # Default is STRUCTURAL, see RFC 4512
         self.kind = 0
         if opts['ABSTRACT'] is not None:
@@ -229,12 +243,13 @@ class ObjectClass(SchemaElement):
                 self.key_attr('DESC', self.desc, quoted=1),
                 self.key_list('SUP', self.sup, sep=' $ '),
                 {0: '', 1: ' OBSOLETE'}[self.obsolete],
-                ' %s' % OBJECTCLASS_KIND_STR[self.kind],
+                f' {OBJECTCLASS_KIND_STR[self.kind]}',
                 self.key_list('MUST', self.must, sep=' $ '),
                 self.key_list('MAY', self.may, sep=' $ '),
+                self.key_list('X-ORIGIN', self.x_origin, quoted=1),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class AttributeType(SchemaElement):
@@ -325,7 +340,7 @@ class AttributeType(SchemaElement):
         'COLLECTIVE': None,
         'NO-USER-MODIFICATION': None,
         'USAGE': ('userApplications',),
-        'X-ORIGIN': (None,),
+        'X-ORIGIN': (),
         'X-ORDERED': (None,),
     }
 
@@ -337,7 +352,7 @@ class AttributeType(SchemaElement):
         self.equality = opts['EQUALITY'][0]
         self.ordering = opts['ORDERING'][0]
         self.substr = opts['SUBSTR'][0]
-        self.x_origin = opts['X-ORIGIN'][0]
+        self.x_origin = opts['X-ORIGIN']
         self.x_ordered = opts['X-ORDERED'][0]
         try:
             syntax = opts['SYNTAX'][0]
@@ -385,11 +400,11 @@ class AttributeType(SchemaElement):
                 {0: '', 1: ' USAGE directoryOperation', 2: ' USAGE distributedOperation', 3: ' USAGE dSAOperation'}[
                     self.usage
                 ],
-                self.key_attr('X-ORIGIN', self.x_origin, quoted=1),
+                self.key_list('X-ORIGIN', self.x_origin, quoted=1),
                 self.key_attr('X-ORDERED', self.x_ordered, quoted=1),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class LDAPSyntax(SchemaElement):
@@ -422,6 +437,7 @@ class LDAPSyntax(SchemaElement):
 
     def _set_attrs(self, opts):
         self.desc = opts['DESC'][0]
+        self.names = ()
         self.x_subst = opts['X-SUBST'][0]
         self.not_human_readable = (
             self.oid in NOT_HUMAN_READABLE_LDAP_SYNTAXES or opts['X-NOT-HUMAN-READABLE'][0] == 'TRUE'
@@ -438,7 +454,7 @@ class LDAPSyntax(SchemaElement):
                 {0: '', 1: " X-BINARY-TRANSFER-REQUIRED 'TRUE'"}[self.x_binary_transfer_required],
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class MatchingRule(SchemaElement):
@@ -492,7 +508,7 @@ class MatchingRule(SchemaElement):
                 self.key_attr('SYNTAX', self.syntax),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class MatchingRuleUse(SchemaElement):
@@ -546,7 +562,7 @@ class MatchingRuleUse(SchemaElement):
                 self.key_list('APPLIES', self.applies, sep=' $ '),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class DITContentRule(SchemaElement):
@@ -626,7 +642,7 @@ class DITContentRule(SchemaElement):
                 self.key_list('NOT', self.nots, sep=' $ '),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class DITStructureRule(SchemaElement):
@@ -695,7 +711,7 @@ class DITStructureRule(SchemaElement):
                 self.key_list('SUP', self.sup, sep=' $ '),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class NameForm(SchemaElement):
@@ -762,7 +778,7 @@ class NameForm(SchemaElement):
                 self.key_list('MAY', self.may, sep=' $ '),
             )
         )
-        return '( %s )' % ''.join(result)
+        return '( {} )'.format(''.join(result))
 
 
 class SchemaElementOIDSet(MutableSet):
@@ -862,7 +878,11 @@ class Entry(UserDict):
             self._attrtype2keytuple[nameoroid] = (oid,) + tuple(noid_l[1:])
             return self._attrtype2keytuple[nameoroid]
 
+    _at2key = name2key
+
     def __contains__(self, nameoroid):
+        if not isinstance(nameoroid, str):
+            return False
         return self.name2key(nameoroid) in self.data
 
     def __getitem__(self, nameoroid):
@@ -883,22 +903,34 @@ class Entry(UserDict):
 
     def __delitem__(self, nameoroid):
         key = self.name2key(nameoroid)
-        del self._keytuple2attrtype[key]
         del self.data[key]
+        del self._keytuple2attrtype[key]
+        if isinstance(nameoroid, str):
+            self._attrtype2keytuple.pop(nameoroid, None)
 
     def __iter__(self):
         for key in self.data:
             yield self._keytuple2attrtype[key]
 
     def has_key(self, key):
-        raise NotImplementedError('do not use %s.has_key() method' % (self.__class__.__name__,))
+        return key in self
 
     def keys(self):
-        return iter(self)
+        return list(iter(self))
 
     def items(self):
-        for k in self.keys():
-            yield (k, self[k])
+        return [(key, self[key]) for key in self]
+
+    def copy(self):
+        inst = self.__class__.__new__(self.__class__)
+        inst._keytuple2attrtype = self._keytuple2attrtype.copy()
+        inst._attrtype2keytuple = self._attrtype2keytuple.copy()
+        inst.data = self.data.copy()
+        inst._s = self._s
+        inst.dn = self.dn
+        return inst
+
+    __copy__ = copy
 
     def attribute_types(self, attr_type_filter=None, raise_keyerror=1):
         """
@@ -914,20 +946,26 @@ class Entry(UserDict):
 
     def object_class_oid_set(self):
         try:
-            object_classes = [oc.decode('ascii') for oc in self.__getitem__('objectClass')]
+            object_classes = [
+                oc if isinstance(oc, str) else oc.decode('utf-8') for oc in self.__getitem__('objectClass')
+            ]
         except KeyError:
             object_classes = []
         return SchemaElementOIDSet(self._s, ObjectClass, object_classes)
 
+    @staticmethod
+    def _decode_schema_name(value):
+        return value if isinstance(value, str) else value.decode('utf-8')
+
     def get_structural_oc(self):
         try:
             structural_object_class_oid = self._s.get_oid(
-                ObjectClass, self.__getitem__('structuralObjectClass')[-1].decode('ascii')
+                ObjectClass, self._decode_schema_name(self.__getitem__('structuralObjectClass')[-1])
             )
         except (KeyError, IndexError):
             try:
                 structural_object_class_oid = self._s.get_structural_oc(
-                    [av.decode('ascii') for av in self.__getitem__('objectClass')]
+                    [self._decode_schema_name(av) for av in self.__getitem__('objectClass')]
                 )
             except KeyError:
                 return None
@@ -943,3 +981,18 @@ class Entry(UserDict):
 
     def get_rdn_templates(self):
         return self._s.get_rdn_templates(self.get_structural_oc())
+
+
+# Keep class-level access to the formerly public token lists.
+for _schema_class in (
+    ObjectClass,
+    AttributeType,
+    LDAPSyntax,
+    MatchingRule,
+    MatchingRuleUse,
+    DITContentRule,
+    DITStructureRule,
+    NameForm,
+):
+    _schema_class.known_tokens = list(_schema_class.token_defaults)
+del _schema_class

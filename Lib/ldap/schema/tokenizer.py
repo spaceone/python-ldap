@@ -6,6 +6,9 @@ ldap0.schema.parse - Low-level parsing functions for schema element strings
 import re
 
 
+UNESCAPE_PATTERN = re.compile(r'\\(.)')
+
+
 TOKENS_FINDALL = re.compile(
     r'(\()'  # opening parenthesis
     r'|'  # or
@@ -31,7 +34,7 @@ def split_tokens(sch_str):
         if unquoted:
             parts.append(unquoted)
         elif quoted:
-            parts.append(quoted[1:-1])
+            parts.append(UNESCAPE_PATTERN.sub(r'\1', quoted[1:-1]))
         elif opar:
             parens += 1
             parts.append(opar)
@@ -40,11 +43,11 @@ def split_tokens(sch_str):
             parts.append(cpar)
         elif residue == '$':
             if not parens:
-                raise ValueError("'$' outside parenthesis in %r" % (sch_str))
+                raise ValueError(f"'$' outside parenthesis in {sch_str!r}")
         else:
             raise ValueError(residue, sch_str)
     if parens:
-        raise ValueError('Unbalanced parenthesis in %r' % (sch_str))
+        raise ValueError(f'Unbalanced parenthesis in {sch_str!r}')
     return parts
 
 
@@ -61,7 +64,7 @@ def extract_tokens(tkl, known_tokens):
             token = tkl[i]
             i += 1  # Consume token
             if i < l_len:
-                if tkl[i] in result:
+                if tkl[i] in result or tkl[i] == ')':
                     # non-valued
                     result[token] = ()
                 elif tkl[i] == '(':
@@ -79,3 +82,31 @@ def extract_tokens(tkl, known_tokens):
         else:
             i += 1  # Consume unrecognized item
     return result
+
+
+def parse_tokens(tokens, known_tokens):
+    """Return (OID, found tokens), preserving the legacy tokenizer API."""
+    if len(tokens) < 3 or tokens[0].strip() != '(' or tokens[-1].strip() != ')':
+        raise ValueError(tokens)
+    oid = tokens[1]
+    result = {}
+    i = 2
+    while i < len(tokens):
+        token = tokens[i]
+        i += 1
+        if token not in known_tokens or i >= len(tokens):
+            continue
+        if tokens[i] in known_tokens or tokens[i] == ')':
+            value = ()
+        elif tokens[i] == '(':
+            i += 1
+            start = i
+            while i < len(tokens) and tokens[i] != ')':
+                i += 1
+            value = tuple(v for v in tokens[start:i] if v != '$')
+            i += 1
+        else:
+            value = (tokens[i],)
+            i += 1
+        result[token] = value
+    return oid, result
