@@ -244,7 +244,16 @@ class LDAPUrl:
           Maps automagically to X-BINDPW LDAP URL extension
     """
 
-    attr2extype: ClassVar[dict[str, str]] = {'who': 'bindname', 'cred': 'X-BINDPW'}
+    attr2extype: ClassVar[dict[str, str]] = {
+        'who': 'bindname',
+        'cred': 'X-BINDPW',
+        'trace_level': 'trace',
+        'pwd_filename': 'x-pwdfilename',
+        'sasl_mech': 'x-saslmech',
+        'sasl_authzid': 'x-saslauthzid',
+        'sasl_realm': 'x-saslrealm',
+        'start_tls': 'x-starttls',
+    }
     urlscheme: str
     hostport: str
     dn: str
@@ -311,6 +320,8 @@ class LDAPUrl:
             raise ValueError(f'Value {ldap_url!r} for ldap_url does not seem to be a LDAP URL.')
         scheme, rest = ldap_url.split('://', 1)
         self.urlscheme = scheme.lower()
+        if self.urlscheme + '://' not in LDAPURL_SCHEMES:
+            raise ValueError(f'LDAP URL contains unsupported URL scheme {self.urlscheme}.')
         slash_pos = rest.find('/')
         qemark_pos = rest.find('?')
         if (slash_pos == -1) and (qemark_pos == -1):
