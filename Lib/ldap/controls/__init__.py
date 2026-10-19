@@ -10,20 +10,14 @@ Each class provides support for a certain control.
 
 from __future__ import annotations
 
+import inspect
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+from importlib import import_module
 
-from ldap import _ldap
-from ldap.pkginfo import __version__
+from pyasn1.error import PyAsn1Error
 
-
-assert _ldap.__version__ == __version__, ImportError(
-    f'ldap {__version__} and _ldap {_ldap.__version__} version mismatch!'
-)
-
-from pyasn1.error import PyAsn1Error  # noqa: E402
-
-import ldap  # noqa: E402
+import ldap
 
 
 __all__ = [
@@ -43,9 +37,6 @@ __all__ = [
     'SimplePagedResultsControl',
     'ValueLessRequestControl',
 ]
-
-# response control OID to class registry
-KNOWN_RESPONSE_CONTROLS: dict[str, type[ResponseControl]] = {}
 
 
 class RequestControl:
@@ -145,7 +136,7 @@ class LDAPControl(RequestControl, ResponseControl):
         self.value = value
 
 
-def RequestControlTuples(
+def encode_request_ctrls(
     ctrls: Sequence[RequestControl] | None,
 ) -> list[tuple[str | None, bool, bytes | None]] | None:
     """
@@ -164,7 +155,10 @@ def RequestControlTuples(
     return [(c.controlType, c.criticality, c.encode()) for c in ctrls]
 
 
-def DecodeControlTuples(
+RequestControlTuples = encode_request_ctrls  # backwards compatibility
+
+
+def decode_response_ctrls(
     ctrls: Sequence[tuple[str, bool, bytes]] | None,
     ctrl_reg: Mapping[str, type[ResponseControl]] | None = None,
 ) -> list[ResponseControl]:
@@ -203,6 +197,73 @@ def DecodeControlTuples(
             else:
                 result.append(control)
     return result
+
+
+DecodeControlTuples = decode_response_ctrls  # backwards compatibility
+
+
+class ControlRegistry(MutableMapping[str, type[ResponseControl]]):
+    """
+    Lazily loaded registry mapping response control OIDs to classes.
+    """
+
+    def __init__(self, *module_names: str) -> None:
+        self._cmap: dict[str, type[ResponseControl]] = {}
+        self._module_names = module_names
+        self._loaded = False
+
+    def _load(self) -> None:
+        if self._loaded:
+            return
+
+        self._loaded = True
+
+        for module_name in self._module_names:
+            module = import_module(module_name)
+
+            for _, cls in inspect.getmembers(module, inspect.isclass):
+                if issubclass(cls, ResponseControl) and cls is not ResponseControl:
+                    control_type = getattr(cls, 'controlType', None)
+                    if control_type is not None:
+                        self._cmap.setdefault(control_type, cls)
+
+    def __getitem__(self, key: str) -> type[ResponseControl]:
+        self._load()
+        return self._cmap[key]
+
+    def __setitem__(self, key: str, value: type[ResponseControl]) -> None:
+        self._load()
+        self._cmap[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        self._load()
+        del self._cmap[key]
+
+    def __iter__(self) -> Iterator[str]:
+        self._load()
+        return iter(self._cmap)
+
+    def __len__(self) -> int:
+        self._load()
+        return len(self._cmap)
+
+
+# response control OID to class registry
+KNOWN_RESPONSE_CONTROLS = ControlRegistry(
+    __name__ + '.deref',
+    __name__ + '.libldap',
+    __name__ + '.openldap',
+    __name__ + '.pagedresults',
+    __name__ + '.ppolicy',
+    __name__ + '.psearch',
+    __name__ + '.pwdpolicy',
+    __name__ + '.readentry',
+    __name__ + '.sessiontrack',
+    __name__ + '.simple',
+    __name__ + '.sss',
+    __name__ + '.syncrepl',
+    __name__ + '.vlv',
+)
 
 
 from ldap.controls.libldap import *  # noqa: E402
