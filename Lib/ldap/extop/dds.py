@@ -23,6 +23,10 @@ class RefreshRequest(ExtendedRequest):
     (see https://tools.ietf.org/html/rfc2589#section-4.1)
     """
 
+    __slots__ = (
+        'entryName',
+        'requestTtl',
+    )
     requestName = '1.3.6.1.4.1.1466.101.119.1'
     defaultRequestTtl = 86400
 
@@ -80,6 +84,7 @@ class RefreshResponse(ExtendedResponse):
     (see https://tools.ietf.org/html/rfc2589#section-4.2)
     """
 
+    __slots__ = ('responseTtl',)
     responseName = '1.3.6.1.4.1.1466.101.119.1'
 
     class RefreshResponseValue(univ.Sequence):
