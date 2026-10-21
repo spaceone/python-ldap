@@ -18,7 +18,7 @@ from typing import Optional
 import ldap.schema
 from ldap._types import LDAPEntryDict, TypeAlias
 from ldap.cidict import cidict
-from ldap.schema.subentry import SCHEMA_ATTR_MAPPING, SCHEMA_CLASS_MAPPING
+from ldap.schema.subentry import register_schema_class
 from ldap.schema.tokenizer import extract_tokens, split_tokens
 
 
@@ -281,6 +281,7 @@ class SchemaElement:
         return '( {} )'.format(''.join(result))
 
 
+@register_schema_class
 class ObjectClass(SchemaElement):
     """
     Arguments:
@@ -382,10 +383,7 @@ class ObjectClass(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[ObjectClass.schema_attribute] = ObjectClass
-SCHEMA_ATTR_MAPPING[ObjectClass] = ObjectClass.schema_attribute
-
-
+@register_schema_class
 class AttributeType(SchemaElement):
     """
     Arguments:
@@ -542,10 +540,7 @@ class AttributeType(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[AttributeType.schema_attribute] = AttributeType
-SCHEMA_ATTR_MAPPING[AttributeType] = AttributeType.schema_attribute
-
-
+@register_schema_class
 class LDAPSyntax(SchemaElement):
     """
     SyntaxDescription
@@ -599,10 +594,7 @@ class LDAPSyntax(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[LDAPSyntax.schema_attribute] = LDAPSyntax
-SCHEMA_ATTR_MAPPING[LDAPSyntax] = LDAPSyntax.schema_attribute
-
-
+@register_schema_class
 class MatchingRule(SchemaElement):
     """
     Arguments:
@@ -659,10 +651,7 @@ class MatchingRule(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[MatchingRule.schema_attribute] = MatchingRule
-SCHEMA_ATTR_MAPPING[MatchingRule] = MatchingRule.schema_attribute
-
-
+@register_schema_class
 class MatchingRuleUse(SchemaElement):
     """
     Arguments:
@@ -719,10 +708,7 @@ class MatchingRuleUse(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[MatchingRuleUse.schema_attribute] = MatchingRuleUse
-SCHEMA_ATTR_MAPPING[MatchingRuleUse] = MatchingRuleUse.schema_attribute
-
-
+@register_schema_class
 class DITContentRule(SchemaElement):
     """
     Arguments:
@@ -805,10 +791,7 @@ class DITContentRule(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[DITContentRule.schema_attribute] = DITContentRule
-SCHEMA_ATTR_MAPPING[DITContentRule] = DITContentRule.schema_attribute
-
-
+@register_schema_class
 class DITStructureRule(SchemaElement):
     """
     Arguments:
@@ -879,10 +862,7 @@ class DITStructureRule(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-SCHEMA_CLASS_MAPPING[DITStructureRule.schema_attribute] = DITStructureRule
-SCHEMA_ATTR_MAPPING[DITStructureRule] = DITStructureRule.schema_attribute
-
-
+@register_schema_class
 class NameForm(SchemaElement):
     """
     Arguments:
@@ -950,10 +930,6 @@ class NameForm(SchemaElement):
             )
         )
         return '( {} )'.format(''.join(result))
-
-
-SCHEMA_CLASS_MAPPING[NameForm.schema_attribute] = NameForm
-SCHEMA_ATTR_MAPPING[NameForm] = NameForm.schema_attribute
 
 
 class Entry(EntryBase):
