@@ -7,6 +7,8 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
+from typing import cast
+
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type import constraint, namedtype, namedval, tag, univ
 
@@ -98,7 +100,7 @@ class SSSRequestControl(RequestControl):
         return p
 
     def encode(self) -> bytes:
-        return encoder.encode(self.asn1())  # type: ignore
+        return cast(bytes, encoder.encode(self.asn1()))
 
 
 class SortResultType(univ.Sequence):

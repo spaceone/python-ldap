@@ -5,6 +5,8 @@ ldap.controls.sessiontrack - class for session tracking control
 See https://www.python-ldap.org/ for project details.
 """
 
+from typing import cast
+
 from pyasn1.codec.ber import encoder
 from pyasn1.type import namedtype, univ
 from pyasn1_modules.rfc2251 import LDAPOID, LDAPString
@@ -74,4 +76,4 @@ class SessionTrackingControl(RequestControl):
         scv.setComponentByName('sessionSourceName', LDAPString(self.sessionSourceName))
         scv.setComponentByName('formatOID', LDAPOID(self.formatOID))
         scv.setComponentByName('sessionTrackingIdentifier', LDAPString(self.sessionTrackingIdentifier))
-        return encoder.encode(scv)  # type: ignore
+        return cast(bytes, encoder.encode(scv))

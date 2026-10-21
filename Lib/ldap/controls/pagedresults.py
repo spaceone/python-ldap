@@ -7,6 +7,8 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
+from typing import cast
+
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type import namedtype, univ
 from pyasn1_modules.rfc2251 import LDAPString
@@ -49,7 +51,7 @@ class SimplePagedResultsControl(RequestControl, ResponseControl, register=False)
         pc = PagedResultsControlValue()
         pc.setComponentByName('size', univ.Integer(self.size))
         pc.setComponentByName('cookie', LDAPString(self.cookie))
-        return encoder.encode(pc)  # type: ignore
+        return cast(bytes, encoder.encode(pc))
 
     def decode(self, value: bytes) -> None:
         decodedValue, _ = decoder.decode(value, asn1Spec=PagedResultsControlValue())
