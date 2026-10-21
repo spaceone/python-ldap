@@ -7,6 +7,8 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
+from typing import cast
+
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type import namedtype, tag, univ
 from pyasn1_modules.rfc2251 import LDAPDN, AttributeDescription, AttributeDescriptionList, AttributeValue
@@ -98,7 +100,7 @@ class DereferenceControl(LDAPControl):
         return deref_specs
 
     def encode(self) -> bytes:
-        return encoder.encode(self._deref_specs())  # type: ignore
+        return cast(bytes, encoder.encode(self._deref_specs()))
 
     def decode(self, value: bytes) -> None:
         decodedValue, _ = decoder.decode(value, asn1Spec=DerefResultControlValue())

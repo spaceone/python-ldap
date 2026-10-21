@@ -7,6 +7,8 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
+from typing import cast
+
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1_modules.rfc2251 import AttributeDescriptionList, SearchResultEntry
 
@@ -42,7 +44,7 @@ class ReadEntryControl(LDAPControl):
         attributeSelection = AttributeDescriptionList()
         for i, attr in enumerate(self.attrList):
             attributeSelection.setComponentByPosition(i, attr)
-        return encoder.encode(attributeSelection)  # type: ignore
+        return cast(bytes, encoder.encode(attributeSelection))
 
     def decode(self, value: bytes) -> None:
         decodedEntry, _ = decoder.decode(value, asn1Spec=SearchResultEntry())

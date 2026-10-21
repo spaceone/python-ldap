@@ -7,6 +7,8 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
+from typing import cast
+
 from pyasn1.codec.ber import decoder, encoder
 from pyasn1.type import namedtype, namedval, tag, univ
 
@@ -92,7 +94,7 @@ class VLVRequestControl(RequestControl):
         vlv.setComponentByName('target', target)
         if self.context_id is not None:
             vlv.setComponentByName('contextID', self.context_id)
-        return encoder.encode(vlv)  # type: ignore
+        return cast(bytes, encoder.encode(vlv))
 
 
 class VirtualListViewResultType(univ.Enumerated):
