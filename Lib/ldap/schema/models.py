@@ -195,6 +195,13 @@ class SchemaElement:
       containing the defaults for certain schema description key-words
     """
 
+    __slots__ = (
+        '__dict__',  # Preserve custom attributes on schema elements.
+        'desc',
+        'obsolete',
+        'oid',
+    )
+
     schema_attribute: ClassVar[str]
     oid: str
     names: tuple[str, ...]
@@ -305,6 +312,8 @@ class ObjectClass(SchemaElement):
       implementations to indicate the source of the associated schema
       element
     """
+
+    __slots__ = ('kind', 'may', 'must', 'names', 'obsolete', 'sup', 'x_origin')
 
     obsolete: bool
     must: tuple[str, ...]
@@ -426,6 +435,23 @@ class AttributeType(SchemaElement):
       the attribute as their RDN are ordered among their siblings.
     """
 
+    __slots__ = (
+        'collective',
+        'equality',
+        'names',
+        'no_user_mod',
+        'obsolete',
+        'ordering',
+        'single_value',
+        'substr',
+        'sup',
+        'syntax',
+        'syntax_len',
+        'usage',
+        'x_ordered',
+        'x_origin',
+    )
+
     obsolete: bool
     single_value: bool
     collective: bool
@@ -540,6 +566,8 @@ class LDAPSyntax(SchemaElement):
       human-readable (X-NOT-HUMAN-READABLE)
     """
 
+    __slots__ = ('not_human_readable', 'x_binary_transfer_required', 'x_subst')
+
     not_human_readable: bool
     x_subst: str | None
     x_binary_transfer_required: bool
@@ -602,6 +630,8 @@ class MatchingRule(SchemaElement):
       (string, or None if missing)
     """
 
+    __slots__ = ('names', 'syntax')
+
     obsolete: bool
     syntax: str | None
 
@@ -658,6 +688,8 @@ class MatchingRuleUse(SchemaElement):
       NAMEs or OIDs of attribute types for which this matching rule is used
       (tuple of strings)
     """
+
+    __slots__ = ('applies', 'names')
 
     obsolete: bool
     applies: tuple[str, ...]
@@ -729,6 +761,14 @@ class DITContentRule(SchemaElement):
       NAMEs or OIDs of attributes which may not be present in an entry of the
       object class. (tuple of strings)
     """
+
+    __slots__ = (
+        'aux',
+        'may',
+        'must',
+        'names',
+        'nots',
+    )
 
     obsolete: bool
     aux: tuple[str, ...]
@@ -802,6 +842,8 @@ class DITStructureRule(SchemaElement):
       of superior entries in the DIT (tuple of strings)
     """
 
+    __slots__ = ('form', 'names', 'ruleid', 'sup')
+
     ruleid: str
     obsolete: bool
     form: str | None
@@ -874,6 +916,8 @@ class NameForm(SchemaElement):
       NAMEs or OIDs of additional attributes an RDN may contain
       (tuple of strings)
     """
+
+    __slots__ = ('may', 'must', 'names', 'oc')
 
     obsolete: bool
     oc: str | None
