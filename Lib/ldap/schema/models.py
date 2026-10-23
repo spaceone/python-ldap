@@ -1127,7 +1127,46 @@ class Entry(EntryBase):
         passes object classes of this particular entry as argument to
         SubSchema.attribute_types()
         """
-        bin_ocs = self.get('objectClass', [])
-        ocs = [oc if isinstance(oc, str) else oc.decode('utf-8') for oc in bin_ocs]
+        return self._s.attribute_types(
+            self.object_class_oid_set(),
+            attr_type_filter,
+            raise_keyerror,
+        )
 
-        return self._s.attribute_types(ocs, attr_type_filter, raise_keyerror)
+    def object_class_oid_set(self) -> SchemaElementOIDSet:
+        try:
+            object_classes = [
+                oc if isinstance(oc, str) else oc.decode('utf-8') for oc in self.__getitem__('objectClass')
+            ]
+        except KeyError:
+            object_classes = []
+        return SchemaElementOIDSet(self._s, ObjectClass, object_classes)
+
+    @staticmethod
+    def _decode_schema_name(value: str | bytes) -> str:
+        return value if isinstance(value, str) else value.decode('utf-8')
+
+    def get_structural_oc(self) -> ObjectClass:
+        try:
+            structural_object_class_oid = self._s.getoid(
+                ObjectClass, self._decode_schema_name(self.__getitem__('structuralObjectClass')[-1])
+            )
+        except (KeyError, IndexError):
+            try:
+                structural_object_class_oid = self._s.get_structural_oc(
+                    [self._decode_schema_name(av) for av in self.__getitem__('objectClass')]
+                )
+            except KeyError:
+                return None
+        return structural_object_class_oid
+
+    def get_possible_dit_structure_rules(self, dn: str) -> list[str]:
+        try:
+            structural_oc = self.get_structural_oc()
+        except KeyError:
+            return None
+        else:
+            return self._s.get_possible_dit_structure_rules(dn, structural_oc)
+
+    def get_rdn_templates(self) -> list[str]:
+        return self._s.get_rdn_templates(self.get_structural_oc())

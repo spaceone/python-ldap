@@ -40,6 +40,8 @@ def register_schema_class(schema_class: type[SchemaElementClass]) -> type[Schema
 from ldap.schema.models import (  # noqa: E402
     AttributeType,
     DITContentRule,
+    DITStructureRule,
+    NameForm,
     ObjectClass,
     SchemaElement,
     SchemaElementOIDSet,
@@ -544,6 +546,144 @@ class SubSchema:
                                 break
 
         return r_must, r_may
+
+    def get_all_operational_attributes(self, only_user_editable: bool = False) -> list[str]:
+        """
+        Returns SchemaElementOIDSet with all operational attributes
+        """
+        res = SchemaElementOIDSet(self, AttributeType, [])
+        for at_obj in cast(list[AttributeType], self.sed[AttributeType].values()):
+            if at_obj.usage != 0 and (not only_user_editable or not (at_obj.no_user_mod or at_obj.collective)):
+                res.add(at_obj.oid)
+        return res
+
+    def determine_no_user_mod_attrs(self) -> dict[str, AttributeType]:
+        return {}.fromkeys([a.oid for a in self.sed[AttributeType].values() if a.no_user_mod])
+
+    def get_associated_name_forms(self, structural_object_class_oid: str) -> list[NameForm]:
+        """
+        Returns a list of instances of NameForm
+        representing all name forms associated with the current structural
+        object class of this entry.
+
+        The structural object class is determined by attribute
+        'structuralObjectClass' if it exists or by calling
+        method get_structural_oc() if not.
+        """
+        if structural_object_class_oid is None:
+            return []
+
+        structural_object_class_obj = self.get_obj(ObjectClass, structural_object_class_oid)
+        if structural_object_class_obj:
+            structural_object_class_names = [oc_name.lower() for oc_name in structural_object_class_obj.names or ()]
+        else:
+            structural_object_class_names = ()
+
+        result = []
+        for name_form_obj in cast(list[NameForm], self.sed[NameForm].values()):
+            if not name_form_obj.obsolete and (
+                name_form_obj.oc == structural_object_class_oid
+                or name_form_obj.oc.lower() in structural_object_class_names
+            ):
+                result.append(name_form_obj)
+        return result
+
+    def get_rdn_variants(self, structural_object_class_oid: str) -> list[tuple[NameForm, tuple[str, ...]]]:
+        rdn_variants = []
+        for name_form_obj in self.get_associated_name_forms(structural_object_class_oid):
+            rdn_variants.append((name_form_obj, name_form_obj.must))
+            for l in range(1, len(name_form_obj.may)):
+                for i in combinations(name_form_obj.may, l):
+                    rdn_variants.append((name_form_obj, name_form_obj.must + i))
+        return rdn_variants
+
+    def get_rdn_templates(self, structural_object_class_oid: str) -> list[str]:
+        """
+        convert the tuple RDN combinations to RDN template strings
+        """
+        rdn_attr_tuples = {}.fromkeys(
+            [rdn_attr_tuple for name_form_obj, rdn_attr_tuple in self.get_rdn_variants(structural_object_class_oid)]
+        ).keys()
+        return ['+'.join([f'{attr_type}=' for attr_type in attr_types]) for attr_types in rdn_attr_tuples]
+
+    def get_applicable_name_form_objs(self, dn, structural_object_class_oid: str) -> list[NameForm]:
+        """
+        Returns a list of instances of NameForm
+        representing all name form associated with the current structural
+        object class of this entry and matching the current RDN.
+        """
+        if dn:
+            rdn_list = DNObj.from_str(dn)[0]
+            current_rdn_attrs = [attr_type.lower() for attr_type, _ in rdn_list]
+            current_rdn_attrs.sort()
+        else:
+            current_rdn_attrs = []
+        result = []
+        for name_form_obj, rdn_attr_tuple in self.get_rdn_variants(structural_object_class_oid):
+            name_form_rdn_attrs = [attr_type.lower() for attr_type in rdn_attr_tuple]
+            name_form_rdn_attrs.sort()
+            if current_rdn_attrs == name_form_rdn_attrs:
+                result.append(name_form_obj)
+        return result
+
+    def get_possible_dit_structure_rules(self, dn: str, structural_object_class_oid: str) -> list[str]:
+        name_form_identifiers = cidict()
+        for name_form_obj in self.get_applicable_name_form_objs(dn, structural_object_class_oid):
+            name_form_identifiers[name_form_obj.oid] = None
+        dit_struct_ruleids = {}
+        for dit_struct_rule_obj in cast(list[DITStructureRule], self.sed[DITStructureRule].values()):
+            name_form_obj = self.get_obj(NameForm, dit_struct_rule_obj.form)
+            if (
+                name_form_obj is not None
+                and (name_form_obj.oid in name_form_identifiers)
+                and (self.getoid(ObjectClass, name_form_obj.oc) == structural_object_class_oid)
+            ):
+                dit_struct_ruleids[dit_struct_rule_obj.ruleid] = dit_struct_rule_obj
+        return list(dit_struct_ruleids)
+
+    def get_subord_structural_oc_names(self, ruleid: str) -> tuple[list[str], list[str]]:
+        subord_structural_oc_oids = {}
+        subord_structural_ruleids = {}
+        for dit_struct_rule_obj in cast(list[DITStructureRule], self.sed[DITStructureRule].values()):
+            for sup in dit_struct_rule_obj.sup:
+                if sup == ruleid:
+                    subord_structural_ruleids[dit_struct_rule_obj.ruleid] = None
+                    name_form_obj = self.get_obj(NameForm, dit_struct_rule_obj.form)
+                    if name_form_obj:
+                        name_form_oid = self.getoid(ObjectClass, name_form_obj.oc)
+                        subord_structural_oc_oids[name_form_oid] = None
+        result = []
+        for oc_oid in subord_structural_oc_oids:
+            oc_obj = self.get_obj(ObjectClass, oc_oid)
+            if oc_obj and oc_obj.names:
+                result.append(oc_obj.names[0])
+            else:
+                result.append(oc_oid)
+        return subord_structural_ruleids.keys(), result
+
+    def get_superior_structural_oc_names(self, ruleid: str) -> tuple[list[str], list[str | None]] | None:
+        try:
+            dit_struct_rule_obj = cast(DITStructureRule, self.sed[DITStructureRule][ruleid])
+        except KeyError:
+            return None
+        else:
+            result = []
+            sup_ruleids = []
+            for sup_ruleid in dit_struct_rule_obj.sup:
+                try:
+                    sup_dit_struct_rule_obj = cast(DITStructureRule, self.sed[DITStructureRule][sup_ruleid])
+                except KeyError:
+                    pass
+                else:
+                    if sup_dit_struct_rule_obj.form:
+                        sup_name_form_obj = self.get_obj(
+                            NameForm,
+                            sup_dit_struct_rule_obj.form,
+                        )
+                        if sup_name_form_obj:
+                            sup_ruleids.append(sup_ruleid)
+                            result.append(sup_name_form_obj.oc)
+        return sup_ruleids, result
 
 
 def urlfetch(
