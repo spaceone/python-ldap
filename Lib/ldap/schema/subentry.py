@@ -42,6 +42,7 @@ from ldap.schema.models import (  # noqa: E402
     DITContentRule,
     ObjectClass,
     SchemaElement,
+    SchemaElementOIDSet,
 )
 
 

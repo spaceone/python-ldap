@@ -960,6 +960,72 @@ class NameForm(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
+from collections.abc import MutableSet
+
+
+class SchemaElementOIDSet(MutableSet):
+    """
+    set-like class which handles OIDs and NAMEs of schema elements
+    """
+
+    def __init__(
+        self, schema: ldap.schema.subentry.SubSchema, se_class: type[SchemaElement], nameoroids: Sequence[str]
+    ):
+        self._schema = schema
+        self._se_class = se_class
+        self._nameoroid_dict = OrderedDict()
+        self.update(nameoroids)
+
+    def __iter__(self):
+        yield from self._nameoroid_dict.keys()
+
+    def __len__(self) -> int:
+        return len(self._nameoroid_dict)
+
+    def _key_oid(self, nameoroid: str) -> str:
+        return self._schema.getoid(self._se_class, nameoroid, raise_keyerror=False).lower()
+
+    def discard(self, nameoroid: str) -> None:
+        try:
+            del self._nameoroid_dict[self._key_oid(nameoroid)]
+        except KeyError:
+            pass
+
+    def __contains__(self, nameoroid: str) -> bool:
+        return self._key_oid(nameoroid) in self._nameoroid_dict
+
+    def intersection(self, s: str[str]):
+        return SchemaElementOIDSet(self._schema, self._se_class, [i for i in s if i in self])
+
+    def add(self, se_name: str):
+        se_name = se_name.strip()
+        if not se_name:
+            return
+        if se_name[0] == '@':
+            if self._se_class != AttributeType:
+                raise ValueError('@-form only possible with class AttributeType')
+            must_attr, may_attr = self._schema.attribute_types(
+                (se_name[1:],), attr_type_filter=None, raise_keyerror=True, ignore_dit_content_rule=True
+            )
+            se_list = [
+                (se_oid, (se_obj.names or [se_oid])[0])
+                for se_oid, se_obj in list(must_attr.items()) + list(may_attr.items())
+            ]
+        else:
+            se_list = [(self._key_oid(se_name), se_name)]
+        for se_oid, se_name0 in se_list:
+            if se_oid not in self._nameoroid_dict:
+                self._nameoroid_dict[se_oid] = se_name0
+
+    def update(self, seq: Sequence[str]) -> None:
+        for item in seq:
+            self.add(item)
+
+    @property
+    def names(self) -> list[str]:
+        return list(self._nameoroid_dict.values())
+
+
 class Entry(EntryBase):
     """
     Schema-aware implementation of an LDAP entry class.
