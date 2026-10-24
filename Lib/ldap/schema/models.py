@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, ClassVar, TypedDict, cast
 if TYPE_CHECKING:
     from typing_extensions import Self
 
+from collections import OrderedDict
+from collections.abc import MutableSet, Sequence
 from typing import Optional
 
 import ldap.schema
@@ -21,6 +23,23 @@ from ldap.cidict import cidict
 from ldap.schema.subentry import register_schema_class
 from ldap.schema.tokenizer import extract_tokens, split_tokens
 
+
+__all__ = [
+    'NOT_HUMAN_READABLE_LDAP_SYNTAXES',
+    'OBJECTCLASS_KIND_STR',
+    'AttributeType',
+    'AttributeUsage',
+    'DITContentRule',
+    'DITStructureRule',
+    'Entry',
+    'LDAPSyntax',
+    'MatchingRule',
+    'MatchingRuleUse',
+    'NameForm',
+    'ObjectClass',
+    'SchemaElement',
+    'SchemaElementOIDSet',
+]
 
 EntryBase: TypeAlias = MutableMapping[str, list[bytes]]
 
@@ -245,6 +264,7 @@ class SchemaElement:
 
     @staticmethod
     def key_attr(key: str, value: str | None, quoted: bool = False) -> str:
+        assert value is None or isinstance(value, str), TypeError(f'value has to be of str, was {value!r}')
         if not value:
             return ''
         if quoted:
@@ -260,9 +280,8 @@ class SchemaElement:
         if quoted:
             quoted_values = ["'{}'".format(value.replace("'", "\\'")) for value in values]
         else:
-            quoted_values = list(values)
-
-        if len(quoted_values) == 1:
+            quoted_values = values
+        if len(values) == 1:
             return f' {key} {quoted_values[0]}'
         return f' {key} ( {sep.join(quoted_values)} )'
 
@@ -960,7 +979,6 @@ class NameForm(SchemaElement):
         return '( {} )'.format(''.join(result))
 
 
-from collections.abc import MutableSet
 
 
 class SchemaElementOIDSet(MutableSet):
@@ -1037,74 +1055,72 @@ class Entry(EntryBase):
     def __init__(self, schema: ldap.schema.subentry.SubSchema, dn: str, entry: LDAPEntryDict) -> None:
         self._keytuple2attrtype: dict[tuple[str, ...], str] = {}
         self._attrtype2keytuple: dict[str, tuple[str, ...]] = {}
-        self.data: dict[tuple[str, ...], list[bytes]] = {}
         self._s = schema
         self.dn = dn
         super().__init__()
         self.update(entry)
 
-    def _at2key(self, nameoroid: str) -> tuple[str, ...]:
+    def name2key(self, nameoroid: str) -> tuple[str, ...]:
         """
         Return tuple of OID and all sub-types of attribute type specified
         in nameoroid.
         """
+        if isinstance(nameoroid, tuple):
+            return nameoroid
         try:
             # Mapping already in cache
             return self._attrtype2keytuple[nameoroid]
         except KeyError:
             # Mapping has to be constructed
-            oid = self._s.getoid(ldap.schema.AttributeType, nameoroid)
-            l = nameoroid.lower().split(';')
-            l[0] = oid
-            t = tuple(l)
-            self._attrtype2keytuple[nameoroid] = t
-            return t
+            noid_l = nameoroid.lower().split(';')
+            oid = self._s.getoid(ldap.schema.AttributeType, noid_l[0])
+            if oid.lower() == 'entrydn':
+                oid = '1.3.6.1.1.20'
+            self._attrtype2keytuple[nameoroid] = (oid,) + tuple(noid_l[1:])
+            return self._attrtype2keytuple[nameoroid]
 
-    def update(self, dict: MutableMapping[str, list[bytes]]) -> None:  # type: ignore
-        for key, value in dict.items():
-            self[key] = value
+    _at2key = name2key
 
     def __contains__(self, nameoroid: object) -> bool:
         if not isinstance(nameoroid, str):
             return False
-        return self._at2key(nameoroid) in self.data
+        return self.name2key(nameoroid) in self.data
 
     def __getitem__(self, nameoroid: object) -> list[bytes]:
-        if not isinstance(nameoroid, str):
-            raise KeyError
-        k = self._at2key(nameoroid)
-        return self.data[k]
+        key = self.name2key(nameoroid)
+        try:
+            return self.data[key]
+        except KeyError:
+            if key[0] == '1.3.6.1.1.20' and self.dn is not None:
+                return [self.dn.encode('utf-8')]
+            raise
 
     def __setitem__(self, nameoroid: object, attr_values: list[bytes]) -> None:
-        if not isinstance(nameoroid, str):
-            raise KeyError
-        k = self._at2key(nameoroid)
-        self._keytuple2attrtype[k] = nameoroid
-        self.data[k] = attr_values
+        if isinstance(nameoroid, bytes):
+            nameoroid = nameoroid.decode('ascii')
+        key = self.name2key(nameoroid)
+        self._keytuple2attrtype[key] = nameoroid
+        self.data[key] = attr_values
 
     def __delitem__(self, nameoroid: object) -> None:
-        if not isinstance(nameoroid, str):
-            raise KeyError
-        k = self._at2key(nameoroid)
-        del self.data[k]
-        del self._attrtype2keytuple[nameoroid]
-        del self._keytuple2attrtype[k]
-
-    def __len__(self) -> int:
-        return len(self.data)
+        key = self.name2key(nameoroid)
+        del self.data[key]
+        del self._keytuple2attrtype[key]
+        if isinstance(nameoroid, str):
+            self._attrtype2keytuple.pop(nameoroid, None)
 
     def has_key(self, nameoroid: str) -> bool:
-        k = self._at2key(nameoroid)
-        return k in self.data
+        return key in self
 
     def keys(self) -> list[str]:  # type: ignore
-        return self._keytuple2attrtype.values()  # type: ignore
+        return list(iter(self))
 
     def items(self) -> list[tuple[str, list[bytes]]]:  # type: ignore
-        return [(k, self[k]) for k in self.keys()]
+        return [(key, self[key]) for key in self]
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self.keys())
+        for key in self.data:
+            yield self._keytuple2attrtype[key]
 
     def copy(self) -> Self:
         inst = self.__class__.__new__(self.__class__)

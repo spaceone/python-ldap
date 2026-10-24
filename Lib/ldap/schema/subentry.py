@@ -7,16 +7,14 @@ See https://www.python-ldap.org/ for details.
 from __future__ import annotations
 
 import copy
-import warnings
 from collections.abc import Iterable, MutableMapping
+from itertools import combinations
 from typing import Any, TypeVar, cast
 from urllib.request import urlopen
 
-import ldap.schema
-import ldapurl
-import ldif
-from ldap._types import LDAPEntryDict
 from ldap.cidict import cidict
+
+from ..dn import DNObj
 
 
 # Maps schema element description (from class.schema_attribute,
@@ -32,6 +30,7 @@ SchemaElementClass = TypeVar('SchemaElementClass', bound='SchemaElement')
 def register_schema_class(schema_class: type[SchemaElementClass]) -> type[SchemaElementClass]:
     SCHEMA_CLASS_MAPPING[schema_class.schema_attribute] = schema_class
     SCHEMA_ATTR_MAPPING[schema_class] = schema_class.schema_attribute
+    schema_class.known_tokens = list(schema_class.token_defaults)
     return schema_class
 
 
@@ -50,7 +49,15 @@ from ldap.schema.models import (  # noqa: E402
 
 SchemaElementSubclass = TypeVar('SchemaElementSubclass', bound=SchemaElement)
 
-SCHEMA_ATTRS = list(SCHEMA_CLASS_MAPPING)
+
+__all__ = [
+    'SCHEMA_ATTR_MAPPING',
+    'SCHEMA_CLASS_MAPPING',
+    'NameNotUnique',
+    'OIDNotUnique',
+    'SubSchema',
+    'SubschemaError',
+]
 
 
 class SubschemaError(ValueError):
@@ -107,42 +114,32 @@ class SubSchema:
 
     def __init__(
         self,
-        sub_schema_sub_entry: LDAPEntryDict,
-        check_uniqueness: int = 1,
-    ) -> None:
-
-        # SchemaElement class -> Element name -> Element OID
-        self.name2oid: dict[type[SchemaElement], cidict[str]] = {}
-
-        # SchemaElement class -> Element OID -> Element object instance
-        self.sed: dict[type[SchemaElement], dict[str, SchemaElement]] = {}
-
-        # Temporary set to hold OIDs which are not unique
-        non_unique_oids: set[str] = set()
-
-        # Dict mapping schema element class to a cidict where keys are used to
-        # indicate OIDs with duplicate names (values are not used)
-        # FIXME: this seems incomplete (cf. class docstring above and
-        # compare to how non_unique_oids is handled at the end)
-        self.non_unique_names: dict[type[SchemaElement], cidict[None]] = {}
-
+        sub_schema_sub_entry,
+        subentry_dn=None,
+        check_uniqueness=True,
+    ):
+        # Initialize all dictionaries
+        self.name2oid = {}
+        self.sed = {}
+        self.non_unique_oids = {}
+        self.non_unique_names = {}
         for c in SCHEMA_CLASS_MAPPING.values():
-            self.name2oid[c] = cidict()
+            self.name2oid[c] = cidict(keytype=str)
             self.sed[c] = {}
-            self.non_unique_names[c] = cidict()
+            self.non_unique_names[c] = cidict(keytype=str)
 
         # Transform entry dict to case-insensitive dict
-        e: LDAPEntryDict = cidict(sub_schema_sub_entry)
+        e = cidict(sub_schema_sub_entry, keytype=str)
 
         # Build the schema registry in dictionaries
-        for attr_type in SCHEMA_ATTRS:
+        for attr_type in SCHEMA_CLASS_MAPPING:
             for attr_value in filter(None, e.get(attr_type, [])):
                 se_class = SCHEMA_CLASS_MAPPING[attr_type]
                 se_instance = se_class(attr_value)
                 se_id = se_instance.get_id()
 
                 if check_uniqueness and se_id in self.sed[se_class]:
-                    non_unique_oids.add(se_id)
+                    self.non_unique_oids[se_id] = None
                     if check_uniqueness == 1:
                         # Add to subschema by adding suffix to ID
                         suffix_counter = 1
@@ -152,24 +149,22 @@ class SubSchema:
                             suffix_counter += 1
                         se_id = new_se_id
                     elif check_uniqueness >= 2:
-                        raise OIDNotUnique(attr_value.decode('utf-8', errors='backslashreplace'))
+                        raise OIDNotUnique(attr_value)
 
                 # Store the schema element instance in the central registry
                 self.sed[se_class][se_id] = se_instance
 
                 if hasattr(se_instance, 'names'):
                     for name in cidict({}.fromkeys(se_instance.names)):
-                        # FIXME: should match behaviour for OIDs above?
                         if check_uniqueness and name in self.name2oid[se_class]:
                             self.non_unique_names[se_class][se_id] = None
-                            raise NameNotUnique(attr_value.decode('utf-8', errors='backslashreplace'))
-                        else:
-                            self.name2oid[se_class][name] = se_id
+                            raise NameNotUnique(attr_value)
+                        self.name2oid[se_class][name] = se_id
 
-        # Turn set into list, maybe more handy for applications
-        self.non_unique_oids = list(non_unique_oids)
-
-        # return subSchema.__init__()
+        # Turn dict into list maybe more handy for applications
+        self.non_unique_oids = self.non_unique_oids.keys()
+        self.subentry_dn = subentry_dn
+        self.no_user_mod_attr_oids = self.determine_no_user_mod_attrs()
 
     def ldap_entry(self) -> dict[str, list[str]]:
         """
@@ -267,7 +262,7 @@ class SubSchema:
             assert se_obj.__class__ == schema_element_class, (
                 f'Schema element referenced by {se_oid} must be of class {schema_element_class.__name__} but was {se_obj.__class__}'
             )
-            for s in getattr(se_obj, 'sup', ()) or ('_',):
+            for s in se_obj.sup or ('_',):
                 sup_oid = self.getoid(schema_element_class, s)
                 try:
                     tree[sup_oid].append(se_oid)
@@ -310,14 +305,8 @@ class SubSchema:
         """
         se = self.sed[se_class][self.getoid(se_class, nameoroid)]
         result = getattr(se, name, None)
-        if result is None and hasattr(se, 'sup') and se.sup:
-            assert isinstance(se.sup, list)
-            # FIXME: sup can be multi-valued
+        if result is None and se.sup:
             result = self.get_inheritedattr(se_class, se.sup[0], name)
-
-        # The return type could be something like this:
-        # tuple[str, ...] | tuple[None] | str | int | None
-        # But we have no control over what is passed as "name"...
         return result
 
     def get_obj(
@@ -350,13 +339,9 @@ class SubSchema:
         Get a schema element by name or OID with all class attributes
         set including inherited class attributes
         """
-        # FIXME: could use a TypeVar to limit the return value to an se_class instance
+
         inherited = inherited or []
         se = copy.copy(self.sed[se_class].get(self.getoid(se_class, nameoroid)))
-        if se is None:
-            return None
-        assert isinstance(se, se_class)
-
         if se and hasattr(se, 'sup'):
             for class_attr_name in inherited:
                 setattr(se, class_attr_name, self.get_inheritedattr(se_class, nameoroid, class_attr_name))
@@ -367,16 +352,11 @@ class SubSchema:
         """
         Get the syntax of an attribute type specified by name or OID
         """
-        at_oid = self.getoid(AttributeType, nameoroid)
         try:
-            at_obj = self.get_inheritedobj(AttributeType, at_oid)
+            syntax = self.get_inheritedattr(AttributeType, nameoroid, 'syntax')
         except KeyError:
             return None
-
-        if at_obj is None:
-            return None
-        else:
-            return at_obj.syntax
+        return syntax
 
     def get_structural_oc(self, oc_list: Iterable[str]) -> str | None:
         """
@@ -384,28 +364,21 @@ class SubSchema:
         if any is present. Returns None else.
         """
         # Get tree of all STRUCTURAL object classes
-        oc_tree = self.tree(ObjectClass, [('kind', [0])])
+        oc_tree = self.tree(ObjectClass, [('kind', {0})])
         # Filter all STRUCTURAL object classes
-        struct_ocs = set()
+        struct_ocs = {}
         for oc_nameoroid in oc_list:
             oc_se = self.get_obj(ObjectClass, oc_nameoroid, None)
             if oc_se and oc_se.kind == 0:
-                struct_ocs.add(oc_se.oid)
+                struct_ocs[oc_se.oid] = None
         result = None
-        # Build a copy of the oid list, to be cleaned as we go.
-        struct_oc_list = list(struct_ocs)
+        struct_oc_list = list(struct_ocs.keys())
         while struct_oc_list:
             oid = struct_oc_list.pop()
             for child_oid in oc_tree[oid]:
                 if self.getoid(ObjectClass, child_oid) in struct_ocs:
                     break
             else:
-                if result is not None:
-                    warnings.warn(
-                        f'multiple leaf structural objectclasses: {result}, {oid}',
-                        category=DeprecationWarning,
-                        stacklevel=2,
-                    )
                 result = oid
         return result
 
@@ -420,7 +393,7 @@ class SubSchema:
         content_rule = self.get_obj(DITContentRule, nameoroid)
         if content_rule:
             # Return AUXILIARY object classes from DITContentRule instance
-            return list(content_rule.aux)
+            return content_rule.aux
         # list all AUXILIARY object classes
         return self.listall(ObjectClass, [('kind', [2])])
 
@@ -450,21 +423,17 @@ class SubSchema:
             A DIT content rule governing the structural object class
             is ignored
         """
-        AttributeType = ldap.schema.models.AttributeType
-        ObjectClass = ldap.schema.models.ObjectClass
 
         # Map object_class_list to object_class_oids (list of OIDs)
         object_class_oids = [self.getoid(ObjectClass, o) for o in object_class_list]
         # Initialize
-        oid_cache: dict[str, None] = {}
-
         r_must: cidict[ldap.schema.models.AttributeType | None] = cidict()
         r_may: cidict[ldap.schema.models.AttributeType | None] = cidict()
+        oid_cache = {}
 
         if '1.3.6.1.4.1.1466.101.120.111' in object_class_oids:
             # Object class 'extensibleObject' MAY carry every attribute type
             for at_obj in self.sed[AttributeType].values():
-                assert isinstance(at_obj, AttributeType), ValueError(at_obj.oid)
                 r_may[at_obj.oid] = at_obj
 
         # Loop over OIDs of all given object classes
