@@ -21,7 +21,7 @@ from ldap._types import LDAPAddModList, LDAPEntryDict, LDAPModifyModList
 from ldap.controls import DecodeControlTuples, RequestControl, RequestControlTuples, ResponseControl
 from ldap.extop import ExtendedRequest, ExtendedResponse, PasswordModifyResponse
 from ldap.pkginfo import __author__, __license__, __version__  # noqa: F401
-from ldap.schema.subentry import SCHEMA_ATTRS
+from ldap.schema.subentry import SCHEMA_CLASS_MAPPING
 
 
 if __debug__:
@@ -1124,7 +1124,7 @@ class SimpleLDAPObject:
         """
         filterstr = '(objectClass=subschema)'
         if attrs is None:
-            attrs = SCHEMA_ATTRS
+            attrs = list(SCHEMA_CLASS_MAPPING)
         try:
             subschemasubentry = self.read_s(subschemasubentry_dn, filterstr=filterstr, attrlist=attrs)
         except ldap.NO_SUCH_OBJECT:

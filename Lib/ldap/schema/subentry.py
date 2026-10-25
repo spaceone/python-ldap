@@ -117,6 +117,7 @@ class SubSchema:
         self,
         sub_schema_sub_entry: LDAPEntryDict,
         check_uniqueness: int = 1,
+        subentry_dn: str | None = None,
     ) -> None:
         # SchemaElement class -> Element name -> Element OID
         self.name2oid: dict[type[SchemaElement], cidict[str]] = {}
@@ -134,12 +135,12 @@ class SubSchema:
         self.non_unique_names: dict[type[SchemaElement], cidict[None]] = {}
 
         for c in SCHEMA_CLASS_MAPPING.values():
-            self.name2oid[c] = cidict()
+            self.name2oid[c] = cidict(keytype=str)
             self.sed[c] = {}
-            self.non_unique_names[c] = cidict()
+            self.non_unique_names[c] = cidict(keytype=str)
 
         # Transform entry dict to case-insensitive dict
-        e: LDAPEntryDict = cidict(sub_schema_sub_entry)
+        e: LDAPEntryDict = cidict(sub_schema_sub_entry, keytype=str)
 
         # Build the schema registry in dictionaries
         for attr_type in SCHEMA_CLASS_MAPPING:
@@ -174,6 +175,7 @@ class SubSchema:
 
         # Turn set into list, maybe more handy for applications
         self.non_unique_oids = list(non_unique_oids)
+        self.subentry_dn = subentry_dn
         self.no_user_mod_attr_oids = self.determine_no_user_mod_attrs()
 
     def _get_elements(self, se_class: type[SchemaElementSubclass]) -> dict[str, SchemaElementSubclass]:
@@ -276,7 +278,7 @@ class SubSchema:
             assert se_obj.__class__ == schema_element_class, (
                 f'Schema element referenced by {se_oid} must be of class {schema_element_class.__name__} but was {se_obj.__class__}'
             )
-            for s in getattr(se_obj, 'sup', ()) or ('_',):
+            for s in se_obj.sup or ('_',):
                 sup_oid = self.getoid(schema_element_class, s)
                 try:
                     tree[sup_oid].append(se_oid)
@@ -781,7 +783,7 @@ def urlfetch(
             s_temp = None
         else:
             if ldap_url.attrs is None:
-                schema_attrs = SCHEMA_ATTRS
+                schema_attrs = list(SCHEMA_CLASS_MAPPING)
             else:
                 schema_attrs = ldap_url.attrs
             s_temp = l.read_subschemasubentry_s(subschemasubentry_dn, attrs=schema_attrs)

@@ -289,6 +289,10 @@ class SchemaElement:
         result.append(self.key_attr('DESC', self.desc, quoted=True))
         return '( {} )'.format(''.join(result))
 
+    @property
+    def known_tokens(self) -> list[str]:
+        return list(self.token_defaults)
+
 
 @register_schema_class
 class ObjectClass(SchemaElement):
