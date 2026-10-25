@@ -219,11 +219,11 @@ class SchemaElement:
         'oid',
     )
 
-    schema_attribute: ClassVar[str]
     oid: str
     names: tuple[str, ...]
     desc: str | None
 
+    schema_attribute: ClassVar[str]
     token_defaults: ClassVar[TokenDefaults] = cast(
         SchemaElementTokens,
         {
@@ -339,7 +339,7 @@ class ObjectClass(SchemaElement):
     sup: tuple[str, ...]
     x_origin: tuple[str, ...]
 
-    schema_attribute = 'objectClasses'
+    schema_attribute: ClassVar[str] = 'objectClasses'
     token_defaults: ClassVar[TokenDefaults] = cast(
         ObjectClassTokens,
         {
@@ -483,7 +483,7 @@ class AttributeType(SchemaElement):
     x_origin: tuple[str, ...]
     x_ordered: str | None
 
-    schema_attribute = 'attributeTypes'
+    schema_attribute: ClassVar[str] = 'attributeTypes'
     token_defaults: ClassVar[TokenDefaults] = cast(
         AttributeTypeTokens,
         {
@@ -589,7 +589,7 @@ class LDAPSyntax(SchemaElement):
     x_subst: str | None
     x_binary_transfer_required: bool
 
-    schema_attribute = 'ldapSyntaxes'
+    schema_attribute: ClassVar[str] = 'ldapSyntaxes'
     token_defaults: ClassVar[TokenDefaults] = cast(
         LDAPSyntaxTokens,
         {
@@ -652,7 +652,7 @@ class MatchingRule(SchemaElement):
     obsolete: bool
     syntax: str | None
 
-    schema_attribute = 'matchingRules'
+    schema_attribute: ClassVar[str] = 'matchingRules'
     token_defaults: ClassVar[TokenDefaults] = cast(
         MatchingRuleTokens,
         {
@@ -711,7 +711,7 @@ class MatchingRuleUse(SchemaElement):
     obsolete: bool
     applies: tuple[str, ...]
 
-    schema_attribute = 'matchingRuleUse'
+    schema_attribute: ClassVar[str] = 'matchingRuleUse'
     token_defaults: ClassVar[TokenDefaults] = cast(
         MatchingRuleUseTokens,
         {
@@ -793,7 +793,7 @@ class DITContentRule(SchemaElement):
     may: tuple[str, ...]
     nots: tuple[str, ...]
 
-    schema_attribute = 'dITContentRules'
+    schema_attribute: ClassVar[str] = 'dITContentRules'
     token_defaults: ClassVar[TokenDefaults] = cast(
         DITContentRuleTokens,
         {
@@ -865,7 +865,7 @@ class DITStructureRule(SchemaElement):
     obsolete: bool
     form: str | None
     sup: tuple[str, ...]
-    schema_attribute = 'dITStructureRules'
+    schema_attribute: ClassVar[str] = 'dITStructureRules'
 
     token_defaults: ClassVar[TokenDefaults] = cast(
         DITStructureRuleTokens,
@@ -940,7 +940,7 @@ class NameForm(SchemaElement):
     oc: str | None
     must: tuple[str, ...]
     may: tuple[str, ...]
-    schema_attribute = 'nameForms'
+    schema_attribute: ClassVar[str] = 'nameForms'
 
     token_defaults: ClassVar[TokenDefaults] = cast(
         NameFormTokens,
