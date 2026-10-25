@@ -6,7 +6,7 @@ See https://www.python-ldap.org/ for project details.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
 from pyasn1.codec.ber import decoder
 from pyasn1.type import univ
@@ -15,11 +15,6 @@ import ldap.controls
 from ldap.controls import ResponseControl, ValueLessRequestControl
 from ldap.ldapobject import SimpleLDAPObject
 
-
-if TYPE_CHECKING:
-    _Base = SimpleLDAPObject
-else:
-    _Base = object
 
 __all__ = [
     'SearchNoOpControl',
@@ -50,7 +45,7 @@ class SearchNoOpControl(ValueLessRequestControl, ResponseControl):
         self.numSearchContinuations: int = int(decodedValue[2])
 
 
-class SearchNoOpMixIn(_Base):
+class SearchNoOpMixIn:
     """
     Mix-in class to be used with class LDAPObject and friends.
 
@@ -71,8 +66,9 @@ class SearchNoOpMixIn(_Base):
         timeout: int = -1,
     ) -> tuple[int, int] | tuple[None, None]:
         msg_id = None
+        conn = cast(SimpleLDAPObject, self)
         try:
-            msg_id = self.search_ext(
+            msg_id = conn.search_ext(
                 base,
                 scope,
                 filterstr=filterstr,
@@ -80,10 +76,10 @@ class SearchNoOpMixIn(_Base):
                 timeout=timeout,
                 serverctrls=[SearchNoOpControl(criticality=True)],
             )
-            _, _, _, search_response_ctrls = self.result3(msg_id, all=True, timeout=timeout)
+            _, _, _, search_response_ctrls = conn.result3(msg_id, all=True, timeout=timeout)
         except (ldap.TIMEOUT, ldap.TIMELIMIT_EXCEEDED, ldap.SIZELIMIT_EXCEEDED, ldap.ADMINLIMIT_EXCEEDED):
             if msg_id is not None:
-                self.abandon(msg_id)
+                conn.abandon(msg_id)
             raise
         else:
             noop_srch_ctrl = [c for c in search_response_ctrls or [] if isinstance(c, SearchNoOpControl)]
