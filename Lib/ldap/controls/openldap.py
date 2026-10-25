@@ -46,8 +46,8 @@ class SearchNoOpControl(ValueLessRequestControl, ResponseControl):
     def decode(self, value: bytes) -> None:
         decodedValue, _ = decoder.decode(value, asn1Spec=self.SearchNoOpControlValue())
         self.resultCode = int(decodedValue[0])
-        self.numSearchResults = int(decodedValue[1])
-        self.numSearchContinuations = int(decodedValue[2])
+        self.numSearchResults: int = int(decodedValue[1])
+        self.numSearchContinuations: int = int(decodedValue[2])
 
 
 class SearchNoOpMixIn(_Base):
