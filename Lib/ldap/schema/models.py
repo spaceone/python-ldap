@@ -232,7 +232,7 @@ class SchemaElement:
         },
     )
 
-    def __init__(self, schema_element_str: str | bytes | None = None) -> None:
+    def __init__(self, schema_element_str: bytes | str | None = None) -> None:
         if isinstance(schema_element_str, bytes):
             schema_element_string = schema_element_str.decode('utf-8')
         elif isinstance(schema_element_str, str):
