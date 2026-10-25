@@ -385,8 +385,7 @@ class SubSchema:
         name: str,
     ) -> object:  # or: tuple[str, ...] | tuple[()] | str | int | bool | None
         """
-        Get a possibly inherited attribute specified by name
-        of a schema element specified by nameoroid.
+        Get an attribute, resolving it from the first superior if necessary.
 
         Return None when the attribute is missing and raise KeyError when
         the schema element itself cannot be found.
